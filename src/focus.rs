@@ -79,6 +79,15 @@ impl State {
             return;
         }
 
+        // Quick settings takes the keyboard while it's open.
+        if let Some(output) = self.pinnacle.panel_output() {
+            let target = KeyboardFocusTarget::QuickSettings(output);
+            if keyboard.current_focus().as_ref() != Some(&target) {
+                keyboard.set_focus(self, Some(target), SERIAL_COUNTER.next_serial());
+            }
+            return;
+        }
+
         let xwayland_grab_dead = keyboard
             .with_grab(|_, grab| {
                 if let Some(xwayland_grab) = grab.downcast_ref::<XWaylandKeyboardGrab<State>>() {
@@ -364,7 +373,7 @@ impl WindowKeyboardFocusStack {
 
     /// Gets the currently focused window on this stack.
     ///
-    /// This is the topmost window that is on an active tag and not
+    /// This is the topmost window that is on an active workspace and not
     /// an OR window.
     pub fn current_focus(&self) -> Option<&WindowElement> {
         if !self.focused {
@@ -374,7 +383,7 @@ impl WindowKeyboardFocusStack {
         self.stack
             .iter()
             .rev()
-            .filter(|win| win.is_on_active_tag())
+            .filter(|win| win.is_on_active_workspace())
             .find(|win| !win.is_x11_override_redirect())
     }
 }

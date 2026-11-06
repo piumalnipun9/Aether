@@ -1,3 +1,4 @@
+pub mod animation;
 pub mod api;
 pub mod backend;
 pub mod cli;
@@ -15,7 +16,8 @@ pub mod process;
 pub mod protocol;
 pub mod render;
 pub mod session;
+pub mod shell;
 pub mod state;
-pub mod tag;
+pub mod workspace;
 pub mod util;
 pub mod window;

@@ -39,7 +39,7 @@ local WindowHandle = {}
 ---Window management.
 ---
 ---This module helps you deal with setting windows to fullscreen and maximized, setting their size,
----moving them between tags, and various other actions.
+---moving them between workspaces, and various other actions.
 ---@class pinnacle.window
 ---@lcat nodoc
 ---@field private handle pinnacle.window.WindowHandleModule
@@ -225,7 +225,7 @@ end
 ---```lua
 ---Window.add_window_rule(function(window)
 ---    if window:app_id() == "Alacritty" then
----        window:set_tag(Tag.get("Terminal"), true)
+---        window:set_workspace(Workspace.get("Terminal"), true)
 ---    end
 ---end)
 ---```
@@ -475,7 +475,7 @@ end
 
 ---Moves this window to the specified output.
 ---
----This will set the window tags to the output tags, and update the window position.
+---This will set the window workspaces to the output workspaces, and update the window position.
 ---
 ---@param output pinnacle.output.OutputHandle The output to move this window to.
 function WindowHandle:move_to_output(output)
@@ -489,28 +489,28 @@ function WindowHandle:move_to_output(output)
     end
 end
 
----Moves this window to the specified tag.
+---Moves this window to the specified workspace.
 ---
----This will remove all tags from this window and add the tag `tag`.
+---This will remove all workspaces from this window and add the workspace `workspace`.
 ---
----@param tag pinnacle.tag.TagHandle The tag to move this window to
-function WindowHandle:move_to_tag(tag)
+---@param workspace pinnacle.workspace.WorkspaceHandle The workspace to move this window to
+function WindowHandle:move_to_workspace(workspace)
     local _, err =
-        client:pinnacle_window_v1_WindowService_MoveToTag({ window_id = self.id, tag_id = tag.id })
+        client:pinnacle_window_v1_WindowService_MoveToWorkspace({ window_id = self.id, workspace_id = workspace.id })
 
     if err then
         log.error(err)
     end
 end
 
----Adds or removes the given tag to or from this window.
+---Adds or removes the given workspace to or from this window.
 ---
----@param tag pinnacle.tag.TagHandle The tag to set or unset
+---@param workspace pinnacle.workspace.WorkspaceHandle The workspace to set or unset
 ---@param set boolean
-function WindowHandle:set_tag(tag, set)
-    local _, err = client:pinnacle_window_v1_WindowService_SetTag({
+function WindowHandle:set_workspace(workspace, set)
+    local _, err = client:pinnacle_window_v1_WindowService_SetWorkspace({
         window_id = self.id,
-        tag_id = tag.id,
+        workspace_id = workspace.id,
         set_or_toggle = set_or_toggle[set],
     })
 
@@ -519,13 +519,13 @@ function WindowHandle:set_tag(tag, set)
     end
 end
 
----Toggles the given tag on this window.
+---Toggles the given workspace on this window.
 ---
----@param tag pinnacle.tag.TagHandle The tag to toggle
-function WindowHandle:toggle_tag(tag)
-    local _, err = client:pinnacle_window_v1_WindowService_SetTag({
+---@param workspace pinnacle.workspace.WorkspaceHandle The workspace to toggle
+function WindowHandle:toggle_workspace(workspace)
+    local _, err = client:pinnacle_window_v1_WindowService_SetWorkspace({
         window_id = self.id,
-        tag_id = tag.id,
+        workspace_id = workspace.id,
         set_or_toggle = set_or_toggle.TOGGLE,
     })
 
@@ -534,28 +534,28 @@ function WindowHandle:toggle_tag(tag)
     end
 end
 
----Sets the exact provided tags on this window.
+---Sets the exact provided workspaces on this window.
 ---
----Passing in an empty table will not change the window's tags.
+---Passing in an empty table will not change the window's workspaces.
 ---
 ---#### Example
 ---```lua
------ Sets the focused window's tags to "1" and "3", removing all others
----Window.get_focused():set_tags({ Tag.get("1"), Tag.get("2") })
+----- Sets the focused window's workspaces to "1" and "3", removing all others
+---Window.get_focused():set_workspaces({ Workspace.get("1"), Workspace.get("2") })
 ---```
 ---
----@param tags pinnacle.tag.TagHandle[] The tags to set
-function WindowHandle:set_tags(tags)
+---@param workspaces pinnacle.workspace.WorkspaceHandle[] The workspaces to set
+function WindowHandle:set_workspaces(workspaces)
     ---@type integer[]
     local ids = {}
 
-    for _, tag in ipairs(tags) do
-        table.insert(ids, tag.id)
+    for _, workspace in ipairs(workspaces) do
+        table.insert(ids, workspace.id)
     end
 
-    local _, err = client:pinnacle_window_v1_WindowService_SetTags({
+    local _, err = client:pinnacle_window_v1_WindowService_SetWorkspaces({
         window_id = self.id,
-        tag_ids = ids,
+        workspace_ids = ids,
     })
 
     if err then
@@ -616,16 +616,16 @@ function WindowHandle:lower()
     end
 end
 
----Returns whether or not this window is on an active tag.
+---Returns whether or not this window is on an active workspace.
 ---
 ---@return boolean
-function WindowHandle:is_on_active_tag()
-    local tags = self:tags() or {}
+function WindowHandle:is_on_active_workspace()
+    local workspaces = self:workspaces() or {}
 
     ---@type (fun(): boolean)[]
     local batch = {}
 
-    for i, tg in ipairs(tags) do
+    for i, tg in ipairs(workspaces) do
         batch[i] = function()
             return tg:active() or false
         end
@@ -690,15 +690,15 @@ end
 
 ---Gets this window's output.
 ---
----This is currently implemented as the output of the first tag on this window.
+---This is currently implemented as the output of the first workspace on this window.
 ---
----@return pinnacle.output.OutputHandle|nil output This window's output, or `nil` if it doesn't exist or it has no tags.
+---@return pinnacle.output.OutputHandle|nil output This window's output, or `nil` if it doesn't exist or it has no workspaces.
 function WindowHandle:output()
-    local tags = self:tags()
-    if not tags[1] then
+    local workspaces = self:workspaces()
+    if not workspaces[1] then
         return nil
     end
-    return tags[1]:output()
+    return workspaces[1]:output()
 end
 
 ---Gets whether or not this window is floating.
@@ -758,15 +758,15 @@ function WindowHandle:maximized()
     return response and response.layout_mode == layout_mode_def.LAYOUT_MODE_MAXIMIZED or false
 end
 
----Gets all tags on this window.
+---Gets all workspaces on this window.
 ---
----@return pinnacle.tag.TagHandle[]
-function WindowHandle:tags()
-    local response, err = client:pinnacle_window_v1_WindowService_GetTagIds({ window_id = self.id })
+---@return pinnacle.workspace.WorkspaceHandle[]
+function WindowHandle:workspaces()
+    local response, err = client:pinnacle_window_v1_WindowService_GetWorkspaceIds({ window_id = self.id })
 
-    local tag_ids = response and response.tag_ids or {}
+    local workspace_ids = response and response.workspace_ids or {}
 
-    local handles = require("pinnacle.tag").handle.new_from_table(tag_ids)
+    local handles = require("pinnacle.workspace").handle.new_from_table(workspace_ids)
 
     return handles
 end

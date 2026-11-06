@@ -18,7 +18,7 @@ use pinnacle_api_defs::pinnacle::layout::{
 use tokio::sync::mpsc::{UnboundedSender, unbounded_channel};
 use tokio_stream::StreamExt;
 
-use crate::{BlockOnTokio, client::Client, output::OutputHandle, tag::TagHandle};
+use crate::{BlockOnTokio, client::Client, output::OutputHandle, workspace::WorkspaceHandle};
 
 /// A response to a layout request containing a layout tree.
 pub struct LayoutResponse {
@@ -26,7 +26,7 @@ pub struct LayoutResponse {
     pub root_node: LayoutNode,
     /// An identifier for the layout tree.
     ///
-    /// Trees that are considered "the same", like trees for a certain tag and layout,
+    /// Trees that are considered "the same", like trees for a certain workspace and layout,
     /// should have the same identifier to allow Pinnacle to remember tile sizing.
     pub tree_id: u32,
 }
@@ -65,10 +65,10 @@ pub fn manage(
                     name: response.output_name.clone(),
                 },
                 window_count: response.window_count,
-                tags: response
-                    .tag_ids
+                workspaces: response
+                    .workspace_ids
                     .into_iter()
-                    .map(|id| TagHandle { id })
+                    .map(|id| WorkspaceHandle { id })
                     .collect(),
             };
             let tree_response = on_layout(args);
@@ -376,8 +376,8 @@ pub struct LayoutArgs {
     pub output: OutputHandle,
     /// The number of windows being laid out.
     pub window_count: u32,
-    /// The *focused* tags on the output.
-    pub tags: Vec<TagHandle>,
+    /// The *focused* workspaces on the output.
+    pub workspaces: Vec<WorkspaceHandle>,
 }
 
 /// Types that can generate layouts by computing a tree of [`LayoutNode`]s.

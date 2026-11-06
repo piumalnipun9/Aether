@@ -143,11 +143,11 @@ message GetFocusedResponse {
   bool focused = 1;
 }
 
-message GetTagIdsRequest {
+message GetWorkspaceIdsRequest {
   string output_name = 1;
 }
-message GetTagIdsResponse {
-  repeated uint32 tag_ids = 1;
+message GetWorkspaceIdsResponse {
+  repeated uint32 workspace_ids = 1;
 }
 
 message GetScaleRequest {
@@ -212,7 +212,7 @@ service OutputService {
   rpc GetPhysicalSize(GetPhysicalSizeRequest) returns (GetPhysicalSizeResponse);
   rpc GetModes(GetModesRequest) returns (GetModesResponse);
   rpc GetFocused(GetFocusedRequest) returns (GetFocusedResponse);
-  rpc GetTagIds(GetTagIdsRequest) returns (GetTagIdsResponse);
+  rpc GetWorkspaceIds(GetWorkspaceIdsRequest) returns (GetWorkspaceIdsResponse);
   rpc GetScale(GetScaleRequest) returns (GetScaleResponse);
   rpc GetTransform(GetTransformRequest) returns (GetTransformResponse);
   rpc GetEnabled(GetEnabledRequest) returns (GetEnabledResponse);

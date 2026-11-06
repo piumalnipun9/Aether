@@ -55,7 +55,7 @@ message LayoutResponse {
     uint32 request_id = 1;
     string output_name = 2;
     uint32 window_count = 3;
-    repeated uint32 tag_ids = 4;
+    repeated uint32 workspace_ids = 4;
 }
 
 service LayoutService {

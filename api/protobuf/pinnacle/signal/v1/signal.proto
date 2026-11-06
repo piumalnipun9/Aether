@@ -124,27 +124,27 @@ message WindowDestroyedResponse {
   string app_id = 3;
 }
 
-message TagActiveRequest {
+message WorkspaceActiveRequest {
   StreamControl control = 1;
 }
-message TagActiveResponse {
-  uint32 tag_id = 1;
-  // The tag was set to active or inactive.
+message WorkspaceActiveResponse {
+  uint32 workspace_id = 1;
+  // The workspace was set to active or inactive.
   bool active = 2;
 }
 
-message TagCreatedRequest {
+message WorkspaceCreatedRequest {
   StreamControl control = 1;
 }
-message TagCreatedResponse {
-  uint32 tag_id = 1;
+message WorkspaceCreatedResponse {
+  uint32 workspace_id = 1;
 }
 
-message TagRemovedRequest {
+message WorkspaceRemovedRequest {
   StreamControl control = 1;
 }
-message TagRemovedResponse {
-  uint32 tag_id = 1;
+message WorkspaceRemovedResponse {
+  uint32 workspace_id = 1;
 }
 
 message InputDeviceAddedRequest {
@@ -171,9 +171,9 @@ service SignalService {
   rpc WindowCreated(stream WindowCreatedRequest) returns (stream WindowCreatedResponse);
   rpc WindowDestroyed(stream WindowDestroyedRequest) returns (stream WindowDestroyedResponse);
 
-  rpc TagActive(stream TagActiveRequest) returns (stream TagActiveResponse);
-  rpc TagCreated(stream TagCreatedRequest) returns (stream TagCreatedResponse);
-  rpc TagRemoved(stream TagRemovedRequest) returns (stream TagRemovedResponse);
+  rpc WorkspaceActive(stream WorkspaceActiveRequest) returns (stream WorkspaceActiveResponse);
+  rpc WorkspaceCreated(stream WorkspaceCreatedRequest) returns (stream WorkspaceCreatedResponse);
+  rpc WorkspaceRemoved(stream WorkspaceRemovedRequest) returns (stream WorkspaceRemovedResponse);
 
   rpc InputDeviceAdded(stream InputDeviceAddedRequest) returns (stream InputDeviceAddedResponse);
 }

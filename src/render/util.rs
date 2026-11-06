@@ -1,5 +1,6 @@
 //! Render utilities.
 
+pub mod blur;
 pub mod damage;
 pub mod snapshot;
 pub mod surface;

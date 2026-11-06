@@ -132,6 +132,17 @@ impl<E: RenderElement<GlesRenderer>> RenderSnapshot<E> {
 }
 
 impl WindowElement {
+    /// Capture a snapshot of this window without storing it.
+    pub fn capture_snapshot(
+        &self,
+        renderer: &mut GlesRenderer,
+        scale: Scale<f64>,
+    ) -> Option<WindowSnapshot> {
+        let elements = self.texture_render_elements(renderer, (0, 0).into(), scale, 1.0);
+        (!elements.surface_elements.is_empty())
+            .then(|| RenderSnapshot::new(elements.surface_elements, scale))
+    }
+
     /// Capture a snapshot for this window and store it in its user data.
     pub fn capture_snapshot_and_store(
         &self,

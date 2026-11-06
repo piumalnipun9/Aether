@@ -29,7 +29,7 @@ use crate::{
     BlockOnTokio,
     input::libinput::DeviceHandle,
     output::OutputHandle,
-    tag::TagHandle,
+    workspace::WorkspaceHandle,
     window::{LayoutMode, WindowHandle},
 };
 
@@ -350,41 +350,41 @@ signals! {
             },
         }
     }
-    /// Signals relating to tag events.
-    TagSignal => {
-        /// A tag was set to active or not active.
-        TagActive = {
+    /// Signals relating to workspace events.
+    WorkspaceSignal => {
+        /// A workspace was set to active or not active.
+        WorkspaceActive = {
             enum_name = Active,
-            callback_type = Box<dyn FnMut(&TagHandle, bool) + Send + 'static>,
-            client_request = tag_active,
+            callback_type = Box<dyn FnMut(&WorkspaceHandle, bool) + Send + 'static>,
+            client_request = workspace_active,
             on_response = |response, callbacks| {
-                let handle = TagHandle { id: response.tag_id };
+                let handle = WorkspaceHandle { id: response.workspace_id };
 
                 for callback in callbacks {
                     callback(&handle, response.active);
                 }
             },
         }
-        /// A tag was created.
-        TagCreated = {
+        /// A workspace was created.
+        WorkspaceCreated = {
             enum_name = Created,
-            callback_type = Box<dyn FnMut(&TagHandle) + Send + 'static>,
-            client_request = tag_created,
+            callback_type = Box<dyn FnMut(&WorkspaceHandle) + Send + 'static>,
+            client_request = workspace_created,
             on_response = |response, callbacks| {
-                let handle = TagHandle { id: response.tag_id };
+                let handle = WorkspaceHandle { id: response.workspace_id };
 
                 for callback in callbacks {
                     callback(&handle);
                 }
             },
         }
-        /// A tag was removed
-        TagRemoved = {
+        /// A workspace was removed
+        WorkspaceRemoved = {
             enum_name = Removed,
-            callback_type = Box<dyn FnMut(&TagHandle) + Send + 'static>,
-            client_request = tag_removed,
+            callback_type = Box<dyn FnMut(&WorkspaceHandle) + Send + 'static>,
+            client_request = workspace_removed,
             on_response = |response, callbacks| {
-                let handle = TagHandle { id: response.tag_id };
+                let handle = WorkspaceHandle { id: response.workspace_id };
 
                 for callback in callbacks {
                     callback(&handle);
@@ -430,9 +430,9 @@ pub(crate) struct SignalState {
     pub(crate) window_created: SignalData<WindowCreated>,
     pub(crate) window_destroyed: SignalData<WindowDestroyed>,
 
-    pub(crate) tag_active: SignalData<TagActive>,
-    pub(crate) tag_created: SignalData<TagCreated>,
-    pub(crate) tag_removed: SignalData<TagRemoved>,
+    pub(crate) workspace_active: SignalData<WorkspaceActive>,
+    pub(crate) workspace_created: SignalData<WorkspaceCreated>,
+    pub(crate) workspace_removed: SignalData<WorkspaceRemoved>,
 
     pub(crate) input_device_added: SignalData<InputDeviceAdded>,
 }
@@ -462,9 +462,9 @@ impl SignalState {
             window_created: SignalData::new(),
             window_destroyed: SignalData::new(),
 
-            tag_active: SignalData::new(),
-            tag_created: SignalData::new(),
-            tag_removed: SignalData::new(),
+            workspace_active: SignalData::new(),
+            workspace_created: SignalData::new(),
+            workspace_removed: SignalData::new(),
 
             input_device_added: SignalData::new(),
         }
@@ -487,9 +487,9 @@ impl SignalState {
         self.window_created.reset();
         self.window_destroyed.reset();
 
-        self.tag_active.reset();
-        self.tag_created.reset();
-        self.tag_removed.reset();
+        self.workspace_active.reset();
+        self.workspace_created.reset();
+        self.workspace_removed.reset();
 
         self.input_device_added.reset();
     }

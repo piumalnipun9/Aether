@@ -2,7 +2,7 @@ use crate::delegate_ext_workspace;
 use crate::output::OutputName;
 use crate::protocol::ext_workspace::{ExtWorkspaceHandler, ExtWorkspaceManagerState};
 use crate::state::State;
-use crate::tag::TagId;
+use crate::workspace::WorkspaceId;
 
 use smithay::output::Output;
 
@@ -11,24 +11,24 @@ impl ExtWorkspaceHandler for State {
         &mut self.pinnacle.ext_workspace_state
     }
 
-    fn activate_workspace(&mut self, id: TagId) {
-        if let Some(tag) = id.tag(&self.pinnacle) {
-            crate::api::tag::set_active(self, &tag, Some(true));
+    fn activate_workspace(&mut self, id: WorkspaceId) {
+        if let Some(workspace) = id.workspace(&self.pinnacle) {
+            crate::api::workspace::set_active(self, &workspace, Some(true));
         }
     }
 
-    fn deactivate_workspace(&mut self, id: TagId) {
-        if let Some(tag) = id.tag(&self.pinnacle) {
-            crate::api::tag::set_active(self, &tag, Some(false));
+    fn deactivate_workspace(&mut self, id: WorkspaceId) {
+        if let Some(workspace) = id.workspace(&self.pinnacle) {
+            crate::api::workspace::set_active(self, &workspace, Some(false));
         }
     }
 
-    fn remove_workspace(&mut self, id: TagId) {
-        crate::api::tag::remove(self, Vec::from_iter(id.tag(&self.pinnacle)));
+    fn remove_workspace(&mut self, id: WorkspaceId) {
+        crate::api::workspace::remove(self, Vec::from_iter(id.workspace(&self.pinnacle)));
     }
 
     fn add_workspace(&mut self, output: &Output, name: String) {
-        crate::api::tag::add(self, [name.clone()], OutputName(output.name()));
+        crate::api::workspace::add(self, [name.clone()], OutputName(output.name()));
     }
 }
 

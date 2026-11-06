@@ -181,15 +181,15 @@ impl CompositorHandler for State {
                     let mut unmapped = self.pinnacle.unmapped_windows.swap_remove(idx);
                     unmapped.window.on_commit();
 
-                    if matches!(unmapped.state, UnmappedState::WaitingForTags { .. }) {
+                    if matches!(unmapped.state, UnmappedState::WaitingForWorkspaces { .. }) {
                         if unmapped.window.output(&self.pinnacle).is_some() {
                             self.pinnacle.request_window_rules(&mut unmapped);
                         } else if let Some(output) = self.pinnacle.focused_output().cloned()
-                            && output.with_state(|state| !state.tags.is_empty())
+                            && output.with_state(|state| !state.workspaces.is_empty())
                         {
-                            // FIXME: If there are no tags and the window still commits a buffer,
+                            // FIXME: If there are no workspaces and the window still commits a buffer,
                             // Pinnacle will crash at `map_new_window`.
-                            unmapped.window.set_tags_to_output(&output);
+                            unmapped.window.set_workspaces_to_output(&output);
                             self.pinnacle.request_window_rules(&mut unmapped);
                         }
                     }

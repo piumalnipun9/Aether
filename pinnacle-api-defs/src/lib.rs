@@ -16,9 +16,9 @@ pub mod pinnacle {
         }
     }
 
-    pub mod tag {
+    pub mod workspace {
         pub mod v1 {
-            tonic::include_proto!("pinnacle.tag.v1");
+            tonic::include_proto!("pinnacle.workspace.v1");
         }
     }
 
@@ -76,9 +76,9 @@ pub mod pinnacle {
                 WindowLayoutModeChangedRequest,
                 WindowCreatedRequest,
                 WindowDestroyedRequest,
-                TagActiveRequest,
-                TagCreatedRequest,
-                TagRemovedRequest,
+                WorkspaceActiveRequest,
+                WorkspaceCreatedRequest,
+                WorkspaceRemovedRequest,
                 InputDeviceAddedRequest
             );
         }

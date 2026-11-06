@@ -1,5 +1,5 @@
 use crate::common::fixture::Fixture;
-use pinnacle::{focus::keyboard::KeyboardFocusTarget, state::WithState, tag::Tag};
+use pinnacle::{focus::keyboard::KeyboardFocusTarget, state::WithState, workspace::Workspace};
 use pinnacle_api::layout::{LayoutGenerator, generators::MasterStack};
 use smithay::{output::Output, utils::Rectangle};
 use test_log::test;
@@ -9,16 +9,16 @@ fn set_up() -> (Fixture, Output, Output) {
 
     let output_1 = fixture.add_output(Rectangle::new((0, 0).into(), (100, 100).into()));
     output_1.with_state_mut(|state| {
-        let tag = Tag::new("1".to_string());
-        tag.set_active(true);
-        state.add_tags([tag]);
+        let workspace = Workspace::new("1".to_string());
+        workspace.set_active(true);
+        state.add_workspaces([workspace]);
     });
 
     let output_2 = fixture.add_output(Rectangle::new((100, 0).into(), (100, 100).into()));
     output_2.with_state_mut(|state| {
-        let tag = Tag::new("1".to_string());
-        tag.set_active(true);
-        state.add_tags([tag]);
+        let workspace = Workspace::new("1".to_string());
+        workspace.set_active(true);
+        state.add_workspaces([workspace]);
     });
 
     fixture.pinnacle().focus_output(&output_1);

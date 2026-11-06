@@ -12,8 +12,8 @@ use pinnacle_api_defs::pinnacle::{
             OutputFocusedRequest, OutputFocusedResponse, OutputMoveRequest, OutputMoveResponse,
             OutputPointerEnterRequest, OutputPointerEnterResponse, OutputPointerLeaveRequest,
             OutputPointerLeaveResponse, OutputResizeRequest, OutputResizeResponse, SignalRequest,
-            StreamControl, TagActiveRequest, TagActiveResponse, TagCreatedRequest,
-            TagCreatedResponse, TagRemovedRequest, TagRemovedResponse, WindowCreatedRequest,
+            StreamControl, WorkspaceActiveRequest, WorkspaceActiveResponse, WorkspaceCreatedRequest,
+            WorkspaceCreatedResponse, WorkspaceRemovedRequest, WorkspaceRemovedResponse, WindowCreatedRequest,
             WindowCreatedResponse, WindowDestroyedRequest, WindowDestroyedResponse,
             WindowFocusedRequest, WindowFocusedResponse, WindowLayoutModeChangedRequest,
             WindowLayoutModeChangedResponse, WindowPointerEnterRequest, WindowPointerEnterResponse,
@@ -31,7 +31,7 @@ use tracing::warn;
 use crate::{
     api::Sender,
     state::{State, WithState},
-    tag::Tag,
+    workspace::Workspace,
     window::{WindowElement, window_state::LayoutModeKind},
 };
 
@@ -57,10 +57,10 @@ pub struct SignalState {
     pub window_created: WindowCreated,
     pub window_destroyed: WindowDestroyed,
 
-    // Tag
-    pub tag_active: TagActive,
-    pub tag_created: TagCreated,
-    pub tag_removed: TagRemoved,
+    // Workspace
+    pub workspace_active: WorkspaceActive,
+    pub workspace_created: WorkspaceCreated,
+    pub workspace_removed: WorkspaceRemoved,
 
     // Input
     pub input_device_added: InputDeviceAdded,
@@ -84,9 +84,9 @@ impl SignalState {
         self.window_created.clear();
         self.window_destroyed.clear();
 
-        self.tag_active.clear();
-        self.tag_created.clear();
-        self.tag_removed.clear();
+        self.workspace_active.clear();
+        self.workspace_created.clear();
+        self.workspace_removed.clear();
 
         self.input_device_added.clear();
     }
@@ -424,18 +424,18 @@ impl Signal for WindowDestroyed {
 }
 
 #[derive(Debug, Default)]
-pub struct TagActive {
-    v1: SignalData<signal::v1::TagActiveResponse>,
+pub struct WorkspaceActive {
+    v1: SignalData<signal::v1::WorkspaceActiveResponse>,
 }
 
-impl Signal for TagActive {
-    type Args<'a> = &'a Tag;
+impl Signal for WorkspaceActive {
+    type Args<'a> = &'a Workspace;
 
-    fn signal(&mut self, tag: Self::Args<'_>) {
+    fn signal(&mut self, workspace: Self::Args<'_>) {
         self.v1.signal(|buf| {
-            buf.push_back(signal::v1::TagActiveResponse {
-                tag_id: tag.id().to_inner(),
-                active: tag.active(),
+            buf.push_back(signal::v1::WorkspaceActiveResponse {
+                workspace_id: workspace.id().to_inner(),
+                active: workspace.active(),
             });
         });
     }
@@ -446,17 +446,17 @@ impl Signal for TagActive {
 }
 
 #[derive(Debug, Default)]
-pub struct TagCreated {
-    v1: SignalData<signal::v1::TagCreatedResponse>,
+pub struct WorkspaceCreated {
+    v1: SignalData<signal::v1::WorkspaceCreatedResponse>,
 }
 
-impl Signal for TagCreated {
-    type Args<'a> = &'a Tag;
+impl Signal for WorkspaceCreated {
+    type Args<'a> = &'a Workspace;
 
-    fn signal(&mut self, tag: Self::Args<'_>) {
+    fn signal(&mut self, workspace: Self::Args<'_>) {
         self.v1.signal(|buf| {
-            buf.push_back(signal::v1::TagCreatedResponse {
-                tag_id: tag.id().to_inner(),
+            buf.push_back(signal::v1::WorkspaceCreatedResponse {
+                workspace_id: workspace.id().to_inner(),
             });
         });
     }
@@ -467,17 +467,17 @@ impl Signal for TagCreated {
 }
 
 #[derive(Debug, Default)]
-pub struct TagRemoved {
-    v1: SignalData<signal::v1::TagRemovedResponse>,
+pub struct WorkspaceRemoved {
+    v1: SignalData<signal::v1::WorkspaceRemovedResponse>,
 }
 
-impl Signal for TagRemoved {
-    type Args<'a> = &'a Tag;
+impl Signal for WorkspaceRemoved {
+    type Args<'a> = &'a Workspace;
 
-    fn signal(&mut self, tag: Self::Args<'_>) {
+    fn signal(&mut self, workspace: Self::Args<'_>) {
         self.v1.signal(|buf| {
-            buf.push_back(signal::v1::TagRemovedResponse {
-                tag_id: tag.id().to_inner(),
+            buf.push_back(signal::v1::WorkspaceRemovedResponse {
+                workspace_id: workspace.id().to_inner(),
             });
         });
     }
@@ -630,9 +630,9 @@ impl signal::v1::signal_service_server::SignalService for SignalService {
     type WindowCreatedStream = ResponseStream<WindowCreatedResponse>;
     type WindowDestroyedStream = ResponseStream<WindowDestroyedResponse>;
 
-    type TagActiveStream = ResponseStream<TagActiveResponse>;
-    type TagCreatedStream = ResponseStream<TagCreatedResponse>;
-    type TagRemovedStream = ResponseStream<TagRemovedResponse>;
+    type WorkspaceActiveStream = ResponseStream<WorkspaceActiveResponse>;
+    type WorkspaceCreatedStream = ResponseStream<WorkspaceCreatedResponse>;
+    type WorkspaceRemovedStream = ResponseStream<WorkspaceRemovedResponse>;
 
     type InputDeviceAddedStream = ResponseStream<InputDeviceAddedResponse>;
 
@@ -790,36 +790,36 @@ impl signal::v1::signal_service_server::SignalService for SignalService {
         })
     }
 
-    async fn tag_active(
+    async fn workspace_active(
         &self,
-        request: Request<Streaming<TagActiveRequest>>,
-    ) -> Result<Response<Self::TagActiveStream>, Status> {
+        request: Request<Streaming<WorkspaceActiveRequest>>,
+    ) -> Result<Response<Self::WorkspaceActiveStream>, Status> {
         let in_stream = request.into_inner();
 
         start_signal_stream(self.sender.clone(), in_stream, |state| {
-            &mut state.pinnacle.signal_state.tag_active.v1
+            &mut state.pinnacle.signal_state.workspace_active.v1
         })
     }
 
-    async fn tag_created(
+    async fn workspace_created(
         &self,
-        request: Request<Streaming<TagCreatedRequest>>,
-    ) -> Result<Response<Self::TagCreatedStream>, Status> {
+        request: Request<Streaming<WorkspaceCreatedRequest>>,
+    ) -> Result<Response<Self::WorkspaceCreatedStream>, Status> {
         let in_stream = request.into_inner();
 
         start_signal_stream(self.sender.clone(), in_stream, |state| {
-            &mut state.pinnacle.signal_state.tag_created.v1
+            &mut state.pinnacle.signal_state.workspace_created.v1
         })
     }
 
-    async fn tag_removed(
+    async fn workspace_removed(
         &self,
-        request: Request<Streaming<TagRemovedRequest>>,
-    ) -> Result<Response<Self::TagRemovedStream>, Status> {
+        request: Request<Streaming<WorkspaceRemovedRequest>>,
+    ) -> Result<Response<Self::WorkspaceRemovedStream>, Status> {
         let in_stream = request.into_inner();
 
         start_signal_stream(self.sender.clone(), in_stream, |state| {
-            &mut state.pinnacle.signal_state.tag_removed.v1
+            &mut state.pinnacle.signal_state.workspace_removed.v1
         })
     }
 

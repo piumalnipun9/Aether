@@ -44,6 +44,7 @@ impl Pinnacle {
             })
         });
 
-        self.idle_notifier_state.set_is_inhibited(is_inhibited);
+        self.idle_notifier_state
+            .set_is_inhibited(is_inhibited || self.shell.stay_awake);
     }
 }

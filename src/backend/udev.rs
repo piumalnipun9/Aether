@@ -1103,7 +1103,7 @@ impl Udev {
         );
 
         // If there is saved connector state, the connector was previously plugged in.
-        // In this case, restore its tags and location.
+        // In this case, restore its workspaces and location.
         // TODO: instead of checking the connector, check the monitor's edid info instead
         if let Some(saved_state) = pinnacle
             .config
@@ -1112,12 +1112,12 @@ impl Udev {
         {
             let ConnectorSavedState {
                 loc,
-                tags,
+                workspaces,
                 scale,
                 powered,
             } = saved_state.clone();
 
-            output.with_state_mut(|state| state.tags.clone_from(&tags));
+            output.with_state_mut(|state| state.workspaces.clone_from(&workspaces));
             pinnacle.change_output_state(self, &output, None, None, scale, Some(loc));
             if let Some(powered) = powered {
                 self.set_output_powered(&output, &pinnacle.loop_handle, powered);
@@ -1363,7 +1363,10 @@ impl Udev {
             }
         };
 
-        if render_needed || pinnacle.cursor_state.is_current_cursor_animated() {
+        if render_needed
+            || pinnacle.cursor_state.is_current_cursor_animated()
+            || pinnacle.tick_animations()
+        {
             self.schedule_render(&output);
         } else {
             pinnacle.send_frame_callbacks(&output, Some(surface.frame_callback_sequence));
@@ -1780,7 +1783,7 @@ impl Udev {
             }
         }
 
-        if pinnacle.cursor_state.is_current_cursor_animated() {
+        if pinnacle.cursor_state.is_current_cursor_animated() || pinnacle.tick_animations() {
             self.schedule_render(output);
         } else {
             pinnacle.send_frame_callbacks(output, Some(surface.frame_callback_sequence));

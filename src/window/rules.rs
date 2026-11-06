@@ -8,7 +8,7 @@ use smithay::{
 use crate::{
     api::Sender,
     state::{Pinnacle, WithState},
-    tag::Tag,
+    workspace::Workspace,
 };
 
 use super::{
@@ -39,7 +39,7 @@ pub struct WindowRules {
     pub floating_y: Option<i32>,
     pub floating_size: Option<Size<i32, Logical>>,
     pub decoration_mode: Option<zxdg_toplevel_decoration_v1::Mode>,
-    pub tags: Option<IndexSet<Tag>>,
+    pub workspaces: Option<IndexSet<Workspace>>,
 }
 
 #[derive(Debug, Clone, Default)]
@@ -164,7 +164,7 @@ impl Pinnacle {
             floating_y,
             floating_size,
             decoration_mode,
-            tags,
+            workspaces,
         } = rules;
 
         let ClientRequests {
@@ -189,8 +189,9 @@ impl Pinnacle {
             state.floating_y = *floating_y;
             state.floating_size = floating_size.unwrap_or(state.floating_size);
             state.decoration_mode = (*decoration_mode).or(*client_decoration_mode);
-            if let Some(tags) = tags {
-                state.tags = tags.clone();
+            // A window is on exactly one workspace.
+            if let Some(workspace) = workspaces.as_ref().and_then(|ws| ws.first()) {
+                state.workspaces = std::iter::once(workspace.clone()).collect();
             }
         });
 
@@ -227,8 +228,8 @@ impl Pinnacle {
     /// If there are no window rules set, immediately sends the initial configure for toplevels
     /// or maps x11 surfaces.
     pub fn request_window_rules(&mut self, unmapped: &mut Unmapped) {
-        let UnmappedState::WaitingForTags { client_requests } = &unmapped.state else {
-            panic!("tried to request_window_rules but not waiting for tags");
+        let UnmappedState::WaitingForWorkspaces { client_requests } = &unmapped.state else {
+            panic!("tried to request_window_rules but not waiting for workspaces");
         };
 
         unmapped.state = UnmappedState::WaitingForRules {

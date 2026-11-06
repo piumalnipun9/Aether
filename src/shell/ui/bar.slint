@@ -1,0 +1,409 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+
+// The top bar, drawn by the compositor on every output: floating pills over the wallpaper.
+
+import { Icons } from "icons.slint";
+import { Icon, Label, Motion, Pill, Theme } from "theme.slint";
+
+export struct WorkspaceItem {
+    name: string,
+    active: bool,
+    occupied: bool,
+}
+
+export enum RadioState {
+    // There's no such hardware.
+    missing,
+    off,
+    on,
+    connected,
+}
+
+component Workspace {
+    in property <WorkspaceItem> item;
+    callback clicked();
+
+    Rectangle {
+        border-radius: self.height / 2;
+        background: item.active
+            ? Theme.accent
+            : Theme.on-surface.with-alpha(
+                (item.occupied ? 0.32 : 0.14) + (touch.has-hover ? 0.12 : 0));
+
+        animate background {
+            duration: Motion.short;
+            easing: Motion.emphasized;
+        }
+    }
+
+    Text {
+        text: item.name;
+        font-size: 11px;
+        font-weight: item.active ? 600 : 500;
+        horizontal-alignment: center;
+        vertical-alignment: center;
+        color: item.active
+            ? Theme.on-primary
+            : item.occupied ? Theme.on-surface : Theme.on-surface-variant;
+
+        animate color {
+            duration: Motion.short;
+            easing: Motion.emphasized;
+        }
+    }
+
+    touch := TouchArea {
+        clicked => {
+            root.clicked();
+        }
+    }
+}
+
+// An icon and a percentage.
+component Usage inherits Pill {
+    in property <string> icon;
+    in property <int> percent;
+
+    HorizontalLayout {
+        padding-left: 11px;
+        padding-right: 12px;
+        spacing: 7px;
+        alignment: center;
+
+        Icon {
+            y: (parent.height - self.height) / 2;
+            commands: icon;
+        }
+
+        Label {
+            // Room for "100%", so that the pill doesn't change width.
+            min-width: 29px;
+            horizontal-alignment: right;
+            text: "\{percent}%";
+        }
+    }
+}
+
+component WifiIcon {
+    in property <RadioState> state;
+    // From 1 to 3 when connected.
+    in property <int> bars;
+
+    width: 16px;
+    height: 16px;
+
+    if state == RadioState.off: Icon {
+        commands: Icons.wifi-off;
+        fill: Theme.on-surface-variant;
+    }
+
+    if state == RadioState.on: Icon {
+        commands: Icons.wifi;
+    }
+
+    if state == RadioState.connected: Icon {
+        commands: Icons.wifi;
+        fill: Theme.on-surface.with-alpha(0.3);
+    }
+
+    if state == RadioState.connected: Icon {
+        commands: Icons.wifi-bars[bars - 1];
+        fill: Theme.accent;
+    }
+}
+
+component BluetoothIcon inherits Icon {
+    in property <RadioState> state;
+
+    commands: state == RadioState.off ? Icons.bluetooth-off : Icons.bluetooth;
+    fill: state == RadioState.connected
+        ? Theme.accent
+        : state == RadioState.off ? Theme.on-surface-variant : Theme.on-surface;
+}
+
+component VolumeIcon inherits Icon {
+    in property <int> percent;
+    in property <bool> muted;
+
+    commands: muted
+        ? Icons.volume-off
+        : percent == 0
+            ? Icons.volume-mute
+            : percent < 50 ? Icons.volume-down : Icons.volume-up;
+    fill: muted ? Theme.on-surface-variant : Theme.on-surface;
+}
+
+component BatteryPill inherits Pill {
+    in property <int> percent;
+    in property <bool> charging;
+
+    property <color> tint: charging
+        ? Theme.accent
+        : percent <= 15 ? Theme.error : Theme.on-surface;
+    property <int> level: round(percent * (Icons.battery.length - 1) / 100);
+
+    HorizontalLayout {
+        padding-left: 10px;
+        padding-right: 12px;
+        spacing: 6px;
+        alignment: center;
+
+        Icon {
+            y: (parent.height - self.height) / 2;
+            size: 19px;
+            commands: charging ? Icons.battery-charging[level] : Icons.battery[level];
+            fill: tint;
+        }
+
+        Label {
+            text: "\{percent}%";
+            color: tint;
+        }
+    }
+}
+
+export component Bar inherits Window {
+    in property <[WorkspaceItem]> workspaces;
+    in property <int> active-index;
+    in property <string> window-title;
+    in property <string> clock-time;
+    in property <string> clock-date;
+    in property <bool> has-notifications;
+    in property <bool> do-not-disturb;
+
+    in property <RadioState> wifi-state: RadioState.missing;
+    in property <int> wifi-bars: 1;
+    in property <RadioState> bluetooth-state: RadioState.missing;
+    // Negative when there's no sound server to ask.
+    in property <int> volume-percent: -1;
+    in property <bool> volume-muted;
+    // Negative when there is no battery.
+    in property <int> battery-percent: -1;
+    in property <bool> battery-charging;
+    in property <int> cpu-percent;
+    in property <int> ram-percent;
+
+    callback workspace-clicked(int);
+    callback quick-settings-clicked();
+    callback clock-clicked();
+    callback launcher-clicked();
+
+    property <length> margin: 8px;
+    property <length> pill-spacing: 6px;
+
+    property <length> dot-size: 20px;
+    property <length> dot-spacing: 6px;
+    // How much longer the active workspace is than the others.
+    property <length> active-extra: 18px;
+    property <length> dots-padding: 5px;
+
+    background: transparent;
+    default-font-family: "Inter";
+
+    HorizontalLayout {
+        x: 0;
+        y: margin;
+        width: parent.width;
+        height: 30px;
+        alignment: center;
+
+        clock-pill := Pill {
+            background: clock-touch.has-hover
+                ? Theme.surface.mix(Theme.on-surface, 0.82)
+                : Theme.surface.with-alpha(0.92);
+
+            animate background {
+                duration: Motion.short;
+                easing: Motion.emphasized;
+            }
+
+            clock-touch := TouchArea {
+                clicked => {
+                    root.clock-clicked();
+                }
+            }
+
+            HorizontalLayout {
+                padding-left: 14px;
+                padding-right: 14px;
+                spacing: 8px;
+                alignment: center;
+
+                Label {
+                    text: clock-time;
+                }
+
+                Rectangle {
+                    y: (parent.height - self.height) / 2;
+                    width: 3px;
+                    height: 3px;
+                    border-radius: 1.5px;
+                    background: Theme.on-surface-variant;
+                }
+
+                Text {
+                    text: clock-date;
+                    font-size: 12px;
+                    font-weight: 500;
+                    color: Theme.on-surface;
+                    vertical-alignment: center;
+                }
+
+                if do-not-disturb: Icon {
+                    y: (parent.height - self.height) / 2;
+                    size: 14px;
+                    commands: Icons.bell-off;
+                    fill: Theme.on-surface-variant;
+                }
+
+                if has-notifications && !do-not-disturb: Rectangle {
+                    y: (parent.height - self.height) / 2;
+                    width: 7px;
+                    height: 7px;
+                    border-radius: self.height / 2;
+                    background: Theme.accent;
+                }
+            }
+        }
+    }
+
+    HorizontalLayout {
+        x: margin;
+        y: margin;
+        width: max(clock-pill.x - self.x - pill-spacing, 0px);
+        height: 30px;
+        alignment: start;
+        spacing: pill-spacing;
+
+        Pill {
+            width: self.height;
+            background: launcher-touch.has-hover
+                ? Theme.surface.mix(Theme.on-surface, 0.82)
+                : Theme.surface.with-alpha(0.92);
+
+            animate background {
+                duration: Motion.short;
+                easing: Motion.emphasized;
+            }
+
+            Icon {
+                x: (parent.width - self.width) / 2;
+                y: (parent.height - self.height) / 2;
+                commands: Icons.apps;
+            }
+
+            launcher-touch := TouchArea {
+                clicked => {
+                    root.launcher-clicked();
+                }
+            }
+        }
+
+        Pill {
+            width: dots-padding * 2 + active-extra
+                + dot-size * workspaces.length
+                + dot-spacing * max(workspaces.length - 1, 0);
+
+            for item[index] in workspaces: Workspace {
+                // Dots after the active workspace move over to make room for it.
+                x: dots-padding + (dot-size + dot-spacing) * index
+                    + (index > active-index ? active-extra : 0px);
+                y: (parent.height - self.height) / 2;
+                width: dot-size + (item.active ? active-extra : 0px);
+                height: dot-size;
+                item: item;
+                clicked => {
+                    root.workspace-clicked(index);
+                }
+
+                animate x, width {
+                    duration: Motion.medium;
+                    easing: Motion.emphasized;
+                }
+            }
+        }
+
+        if window-title != "": Pill {
+            max-width: 400px;
+
+            HorizontalLayout {
+                padding-left: 14px;
+                padding-right: 14px;
+
+                Text {
+                    text: window-title;
+                    font-size: 12px;
+                    font-weight: 500;
+                    color: Theme.on-surface-variant;
+                    vertical-alignment: center;
+                    overflow: elide;
+                }
+            }
+        }
+    }
+
+    HorizontalLayout {
+        x: 0;
+        y: margin;
+        width: parent.width - margin;
+        height: 30px;
+        alignment: end;
+        spacing: pill-spacing;
+
+        Usage {
+            icon: Icons.memory;
+            percent: cpu-percent;
+        }
+
+        Usage {
+            icon: Icons.ram;
+            percent: ram-percent;
+        }
+
+        for percent in battery-percent >= 0 ? [battery-percent] : []: BatteryPill {
+            percent: percent;
+            charging: battery-charging;
+        }
+
+        Pill {
+            background: quick-settings-touch.has-hover
+                ? Theme.surface.mix(Theme.on-surface, 0.82)
+                : Theme.surface.with-alpha(0.92);
+
+            animate background {
+                duration: Motion.short;
+                easing: Motion.emphasized;
+            }
+
+            quick-settings-touch := TouchArea {
+                clicked => {
+                    root.quick-settings-clicked();
+                }
+            }
+
+            HorizontalLayout {
+                padding-left: 11px;
+                padding-right: 11px;
+                spacing: 9px;
+                alignment: center;
+
+                if wifi-state != RadioState.missing: WifiIcon {
+                    y: (parent.height - self.height) / 2;
+                    state: wifi-state;
+                    bars: wifi-bars;
+                }
+
+                if bluetooth-state != RadioState.missing: BluetoothIcon {
+                    y: (parent.height - self.height) / 2;
+                    state: bluetooth-state;
+                }
+
+                if volume-percent >= 0: VolumeIcon {
+                    y: (parent.height - self.height) / 2;
+                    percent: volume-percent;
+                    muted: volume-muted;
+                }
+            }
+        }
+    }
+}

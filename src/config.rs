@@ -2,12 +2,12 @@ use crate::{
     api::{
         debug::DebugService, input::InputService, layout::LayoutService, output::OutputService,
         pinnacle::PinnacleService, process::ProcessService, render::RenderService,
-        signal::SignalService, tag::TagService, window::WindowService,
+        signal::SignalService, workspace::WorkspaceService, window::WindowService,
     },
     cli::Cli,
     output::OutputName,
     state::Pinnacle,
-    tag::Tag,
+    workspace::Workspace,
 };
 use std::{
     collections::HashMap,
@@ -27,7 +27,7 @@ use pinnacle_api_defs::pinnacle::{
     process::v1::process_service_server::ProcessServiceServer,
     render::v1::render_service_server::RenderServiceServer,
     signal::v1::signal_service_server::SignalServiceServer,
-    tag::v1::tag_service_server::TagServiceServer,
+    workspace::v1::workspace_service_server::WorkspaceServiceServer,
     v1::pinnacle_service_server::PinnacleServiceServer,
     window::v1::window_service_server::WindowServiceServer,
 };
@@ -46,7 +46,7 @@ use xdg::BaseDirectories;
 
 use crate::{
     state::{State, WithState},
-    tag::TagId,
+    workspace::WorkspaceId,
 };
 
 const DEFAULT_SOCKET_DIR: &str = "/tmp";
@@ -292,8 +292,8 @@ impl Config {
 pub struct ConnectorSavedState {
     /// The old location
     pub loc: Point<i32, Logical>,
-    /// The output's previous tags
-    pub tags: IndexSet<Tag>,
+    /// The output's previous workspaces
+    pub workspaces: IndexSet<Workspace>,
     /// The output's previous scale
     pub scale: Option<smithay::output::Scale>,
     /// The output's previous powered state
@@ -331,16 +331,16 @@ impl Pinnacle {
     pub fn start_config(&mut self, builtin: bool) -> anyhow::Result<()> {
         // Clear state
 
-        debug!("Clearing tags");
+        debug!("Clearing workspaces");
         for output in self.outputs.iter() {
             output.with_state_mut(|state| {
-                for tag in state.tags.iter() {
-                    tag.make_defunct();
+                for workspace in state.workspaces.iter() {
+                    workspace.make_defunct();
                 }
             });
         }
 
-        TagId::reset();
+        WorkspaceId::reset();
 
         debug!("Clearing input state");
 
@@ -350,18 +350,6 @@ impl Pinnacle {
 
         self.signal_state.clear();
 
-        #[cfg(feature = "snowcap")]
-        {
-            // FIXME: add some mechanism to detect if the client dies to do cleanup
-
-            if let Some(snowcap) = self.snowcap_handle.as_ref() {
-                snowcap.close_all_widgets();
-            }
-
-            for win in self.windows.iter() {
-                win.with_state_mut(|state| state.decoration_surfaces.clear());
-            }
-        }
 
         let load_default_config = |pinnacle: &mut Pinnacle, reason: &str| {
             if builtin {
@@ -554,7 +542,7 @@ impl Pinnacle {
         let pinnacle_service = PinnacleService::new(grpc_sender.clone());
         let input_service = InputService::new(grpc_sender.clone());
         let process_service = ProcessService::new(grpc_sender.clone());
-        let tag_service = TagService::new(grpc_sender.clone());
+        let workspace_service = WorkspaceService::new(grpc_sender.clone());
         let output_service = OutputService::new(grpc_sender.clone());
         let window_service = WindowService::new(grpc_sender.clone());
         let signal_service = SignalService::new(grpc_sender.clone());
@@ -578,7 +566,7 @@ impl Pinnacle {
             .add_service(refl_service)
             .add_service(PinnacleServiceServer::new(pinnacle_service))
             .add_service(WindowServiceServer::new(window_service))
-            .add_service(TagServiceServer::new(tag_service))
+            .add_service(WorkspaceServiceServer::new(workspace_service))
             .add_service(OutputServiceServer::new(output_service))
             .add_service(InputServiceServer::new(input_service))
             .add_service(ProcessServiceServer::new(process_service))

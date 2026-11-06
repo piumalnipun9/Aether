@@ -4,7 +4,7 @@ use std::{
     time::Duration,
 };
 
-use pinnacle::{state::WithState, tag::Tag};
+use pinnacle::{state::WithState, workspace::Workspace};
 use pinnacle_api::layout::{LayoutGenerator, generators::MasterStack};
 use smithay::{output::Output, utils::Rectangle};
 
@@ -18,9 +18,9 @@ fn set_up() -> (Fixture, Output) {
 
     let output = fixture.add_output(Rectangle::new((0, 0).into(), (1920, 1080).into()));
     output.with_state_mut(|state| {
-        let tag = Tag::new("1".to_string());
-        tag.set_active(true);
-        state.add_tags([tag]);
+        let workspace = Workspace::new("1".to_string());
+        workspace.set_active(true);
+        state.add_workspaces([workspace]);
     });
     fixture.pinnacle().focus_output(&output);
 

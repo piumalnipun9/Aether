@@ -11,9 +11,6 @@ pub fn import_environment() {
         "XDG_CURRENT_DESKTOP",
         "XDG_SESSION_TYPE",
         GRPC_SOCKET_ENV,
-        // TODO:
-        // #[cfg(feature = "snowcap")]
-        // "SNOWCAP_GRPC_SOCKET",
     ]
     .join(" ");
 

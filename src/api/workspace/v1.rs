@@ -1,5 +1,5 @@
 use pinnacle_api_defs::pinnacle::{
-    tag::v1::{
+    workspace::v1::{
         self, AddRequest, AddResponse, GetActiveRequest, GetActiveResponse, GetNameRequest,
         GetNameResponse, GetOutputNameRequest, GetOutputNameResponse, GetRequest, GetResponse,
         MoveToOutputRequest, MoveToOutputResponse, RemoveRequest, SetActiveRequest,
@@ -13,27 +13,27 @@ use crate::{
     api::{TonicResult, run_unary, run_unary_no_response},
     output::OutputName,
     state::WithState,
-    tag::TagId,
+    workspace::WorkspaceId,
 };
 
 #[tonic::async_trait]
-impl v1::tag_service_server::TagService for super::TagService {
+impl v1::workspace_service_server::WorkspaceService for super::WorkspaceService {
     async fn get(&self, _request: Request<GetRequest>) -> TonicResult<GetResponse> {
         run_unary(&self.sender, move |state| {
-            let tags = state.pinnacle.outputs.iter().flat_map(|op| {
+            let workspaces = state.pinnacle.outputs.iter().flat_map(|op| {
                 op.with_state(|state| {
                     state
-                        .tags
+                        .workspaces
                         .iter()
-                        .filter(|tag| !tag.defunct())
+                        .filter(|workspace| !workspace.defunct())
                         .cloned()
                         .collect::<Vec<_>>()
                 })
             });
 
-            let tag_ids = tags.map(|tag| tag.id().to_inner()).collect();
+            let workspace_ids = workspaces.map(|workspace| workspace.id().to_inner()).collect();
 
-            Ok(GetResponse { tag_ids })
+            Ok(GetResponse { workspace_ids })
         })
         .await
     }
@@ -42,11 +42,11 @@ impl v1::tag_service_server::TagService for super::TagService {
         &self,
         request: Request<GetActiveRequest>,
     ) -> TonicResult<GetActiveResponse> {
-        let tag_id = TagId::new(request.into_inner().tag_id);
+        let workspace_id = WorkspaceId::new(request.into_inner().workspace_id);
         run_unary(&self.sender, move |state| {
-            let active = tag_id
-                .tag(&state.pinnacle)
-                .map(|tag| tag.active())
+            let active = workspace_id
+                .workspace(&state.pinnacle)
+                .map(|workspace| workspace.active())
                 .unwrap_or_default();
 
             Ok(GetActiveResponse { active })
@@ -55,11 +55,11 @@ impl v1::tag_service_server::TagService for super::TagService {
     }
 
     async fn get_name(&self, request: Request<GetNameRequest>) -> TonicResult<GetNameResponse> {
-        let tag_id = TagId::new(request.into_inner().tag_id);
+        let workspace_id = WorkspaceId::new(request.into_inner().workspace_id);
         run_unary(&self.sender, move |state| {
-            let name = tag_id
-                .tag(&state.pinnacle)
-                .map(|tag| tag.name())
+            let name = workspace_id
+                .workspace(&state.pinnacle)
+                .map(|workspace| workspace.name())
                 .unwrap_or_default();
 
             Ok(GetNameResponse { name })
@@ -71,11 +71,11 @@ impl v1::tag_service_server::TagService for super::TagService {
         &self,
         request: Request<GetOutputNameRequest>,
     ) -> TonicResult<GetOutputNameResponse> {
-        let tag_id = TagId::new(request.into_inner().tag_id);
+        let workspace_id = WorkspaceId::new(request.into_inner().workspace_id);
         run_unary(&self.sender, move |state| {
-            let output_name = tag_id
-                .tag(&state.pinnacle)
-                .and_then(|tag| Some(tag.output(&state.pinnacle)?.name()))
+            let output_name = workspace_id
+                .workspace(&state.pinnacle)
+                .and_then(|workspace| Some(workspace.output(&state.pinnacle)?.name()))
                 .unwrap_or_default();
 
             Ok(GetOutputNameResponse { output_name })
@@ -86,7 +86,7 @@ impl v1::tag_service_server::TagService for super::TagService {
     async fn set_active(&self, request: Request<SetActiveRequest>) -> TonicResult<()> {
         let request = request.into_inner();
 
-        let tag_id = TagId::new(request.tag_id);
+        let workspace_id = WorkspaceId::new(request.workspace_id);
 
         let set_or_toggle = request.set_or_toggle();
 
@@ -102,11 +102,11 @@ impl v1::tag_service_server::TagService for super::TagService {
         };
 
         run_unary_no_response(&self.sender, move |state| {
-            let Some(tag) = tag_id.tag(&state.pinnacle) else {
+            let Some(workspace) = workspace_id.workspace(&state.pinnacle) else {
                 return;
             };
 
-            crate::api::tag::set_active(state, &tag, active);
+            crate::api::workspace::set_active(state, &workspace, active);
         })
         .await
     }
@@ -114,11 +114,11 @@ impl v1::tag_service_server::TagService for super::TagService {
     async fn switch_to(&self, request: Request<SwitchToRequest>) -> TonicResult<()> {
         let request = request.into_inner();
 
-        let tag_id = TagId::new(request.tag_id);
+        let workspace_id = WorkspaceId::new(request.workspace_id);
 
         run_unary_no_response(&self.sender, move |state| {
-            let Some(tag) = tag_id.tag(&state.pinnacle) else { return };
-            crate::api::tag::switch_to(state, &tag);
+            let Some(workspace) = workspace_id.workspace(&state.pinnacle) else { return };
+            crate::api::workspace::switch_to(state, &workspace);
         })
         .await
     }
@@ -128,14 +128,14 @@ impl v1::tag_service_server::TagService for super::TagService {
 
         let output_name = OutputName(request.output_name);
 
-        let tag_names = request.tag_names;
+        let workspace_names = request.workspace_names;
 
         run_unary(&self.sender, move |state| {
-            let tags = crate::api::tag::add(state, tag_names, output_name);
+            let workspaces = crate::api::workspace::add(state, workspace_names, output_name);
 
-            let tag_ids = tags.into_iter().map(|tag| tag.id().to_inner()).collect();
+            let workspace_ids = workspaces.into_iter().map(|workspace| workspace.id().to_inner()).collect();
 
-            Ok(AddResponse { tag_ids })
+            Ok(AddResponse { workspace_ids })
         })
         .await
     }
@@ -148,25 +148,25 @@ impl v1::tag_service_server::TagService for super::TagService {
 
         let output_name = OutputName(request.output_name);
 
-        let tag_ids = request.tag_ids.into_iter().map(TagId::new);
+        let workspace_ids = request.workspace_ids.into_iter().map(WorkspaceId::new);
 
         run_unary(&self.sender, move |state| {
-            let tags_to_move = tag_ids
-                .flat_map(|id| id.tag(&state.pinnacle))
+            let workspaces_to_move = workspace_ids
+                .flat_map(|id| id.workspace(&state.pinnacle))
                 .collect::<Vec<_>>();
 
-            use crate::api::tag::TagMoveToOutputError;
-            use pinnacle_api_defs::pinnacle::tag::v1::move_to_output_response::{
+            use crate::api::workspace::WorkspaceMoveToOutputError;
+            use pinnacle_api_defs::pinnacle::workspace::v1::move_to_output_response::{
                 Error,
                 error::{Kind, SameWindowOnTwoOutputs},
             };
 
-            let error = match crate::api::tag::move_to_output(state, tags_to_move, output_name) {
+            let error = match crate::api::workspace::move_to_output(state, workspaces_to_move, output_name) {
                 Ok(()) => None,
-                Err(TagMoveToOutputError::OutputDoesNotExist) => Some(Error {
+                Err(WorkspaceMoveToOutputError::OutputDoesNotExist) => Some(Error {
                     kind: Some(Kind::OutputDoesNotExist(())),
                 }),
-                Err(TagMoveToOutputError::SameWindowOnTwoOutputs(window_ids)) => Some(Error {
+                Err(WorkspaceMoveToOutputError::SameWindowOnTwoOutputs(window_ids)) => Some(Error {
                     kind: Some(Kind::SameWindowOnTwoOutputs(SameWindowOnTwoOutputs {
                         window_ids: window_ids.into_iter().map(|id| id.0).collect(),
                     })),
@@ -180,14 +180,14 @@ impl v1::tag_service_server::TagService for super::TagService {
     async fn remove(&self, request: Request<RemoveRequest>) -> TonicResult<()> {
         let request = request.into_inner();
 
-        let tag_ids = request.tag_ids.into_iter().map(TagId::new);
+        let workspace_ids = request.workspace_ids.into_iter().map(WorkspaceId::new);
 
         run_unary_no_response(&self.sender, move |state| {
-            let tags_to_remove = tag_ids
-                .flat_map(|id| id.tag(&state.pinnacle))
+            let workspaces_to_remove = workspace_ids
+                .flat_map(|id| id.workspace(&state.pinnacle))
                 .collect::<Vec<_>>();
 
-            crate::api::tag::remove(state, tags_to_remove);
+            crate::api::workspace::remove(state, workspaces_to_remove);
         })
         .await
     }

@@ -8,7 +8,7 @@
 //! configuration API.
 //!
 //! This library allows you to interface with the Pinnacle compositor and configure various aspects
-//! like input and the tag system.
+//! like input and the workspace system.
 //!
 //! # Configuration
 //!
@@ -74,7 +74,6 @@ use tonic::transport::{Endpoint, Uri};
 use tower::service_fn;
 
 pub mod debug;
-pub mod experimental;
 pub mod input;
 pub mod layout;
 pub mod output;
@@ -82,9 +81,7 @@ pub mod pinnacle;
 pub mod process;
 pub mod render;
 pub mod signal;
-#[cfg(feature = "snowcap")]
-pub mod snowcap;
-pub mod tag;
+pub mod workspace;
 pub mod util;
 pub mod window;
 
@@ -116,8 +113,6 @@ pub async fn connect() -> Result<(), Box<dyn std::error::Error>> {
 
     Client::init(channel.clone());
 
-    #[cfg(feature = "snowcap")]
-    snowcap_api::connect().await.unwrap();
 
     Ok(())
 }

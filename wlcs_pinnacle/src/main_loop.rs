@@ -2,7 +2,7 @@ use std::{path::PathBuf, sync::Arc, time::Duration};
 
 use pinnacle::{
     state::{ClientState, State, WithState},
-    tag::TagId,
+    workspace::WorkspaceId,
 };
 use smithay::{
     backend::input::{ButtonState, DeviceCapability, InputEvent},
@@ -47,7 +47,7 @@ pub(crate) fn run(channel: Channel<WlcsEvent>) {
         smithay::utils::Transform::Normal,
     );
 
-    TagId::reset();
+    WorkspaceId::reset();
 
     // FIXME: a better way to deal with tokio here?
     let rt = tokio::runtime::Runtime::new().expect("failed to create tokio runtime");

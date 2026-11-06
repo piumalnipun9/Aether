@@ -1,30 +1,30 @@
 syntax = "proto3";
 
-package pinnacle.tag.v1;
+package pinnacle.workspace.v1;
 
 import "google/protobuf/empty.proto";
 import "pinnacle/util/v1/util.proto";
 
 message GetRequest {}
 message GetResponse {
-    repeated uint32 tag_ids = 1;
+    repeated uint32 workspace_ids = 1;
 }
 
 message AddRequest {
     string output_name = 1;
-    repeated string tag_names = 2;
+    repeated string workspace_names = 2;
 }
 message AddResponse {
-    repeated uint32 tag_ids = 1;
+    repeated uint32 workspace_ids = 1;
 }
 
 message RemoveRequest {
-    repeated uint32 tag_ids = 1;
+    repeated uint32 workspace_ids = 1;
 }
 
 message MoveToOutputRequest {
     string output_name = 1;
-    repeated uint32 tag_ids = 2;
+    repeated uint32 workspace_ids = 2;
 }
 
 message MoveToOutputResponse {
@@ -42,24 +42,24 @@ message MoveToOutputResponse {
     optional Error error = 1;
 }
 
-// Tag properties
+// Workspace properties
 
 message GetActiveRequest {
-    uint32 tag_id = 1;
+    uint32 workspace_id = 1;
 }
 message GetActiveResponse {
     bool active = 1;
 }
 
 message GetNameRequest {
-    uint32 tag_id = 1;
+    uint32 workspace_id = 1;
 }
 message GetNameResponse {
     string name = 1;
 }
 
 message GetOutputNameRequest {
-    uint32 tag_id = 1;
+    uint32 workspace_id = 1;
 }
 message GetOutputNameResponse {
     string output_name = 1;
@@ -68,15 +68,15 @@ message GetOutputNameResponse {
 //////////////////
 
 message SetActiveRequest {
-    uint32 tag_id = 1;
+    uint32 workspace_id = 1;
     pinnacle.util.v1.SetOrToggle set_or_toggle = 2;
 }
 
 message SwitchToRequest {
-    uint32 tag_id = 1;
+    uint32 workspace_id = 1;
 }
 
-service TagService {
+service WorkspaceService {
     rpc Get(GetRequest) returns (GetResponse);
 
     rpc GetActive(GetActiveRequest) returns (GetActiveResponse);

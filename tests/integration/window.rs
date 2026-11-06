@@ -1,4 +1,4 @@
-use pinnacle::{state::WithState, tag::Tag};
+use pinnacle::{state::WithState, workspace::Workspace};
 use pinnacle_api::{
     layout::{LayoutGenerator as _, generators::MasterStack},
     output::OutputHandle,
@@ -12,9 +12,9 @@ fn set_up() -> (Fixture, Output) {
 
     let output = fixture.add_output(Rectangle::new((0, 0).into(), (1920, 1080).into()));
     output.with_state_mut(|state| {
-        let tag = Tag::new("1".to_string());
-        tag.set_active(true);
-        state.add_tags([tag]);
+        let workspace = Workspace::new("1".to_string());
+        workspace.set_active(true);
+        state.add_workspaces([workspace]);
     });
     fixture.pinnacle().focus_output(&output);
 
@@ -38,9 +38,9 @@ fn set_up_no_layout() -> (Fixture, Output) {
 
     let output = fixture.add_output(Rectangle::new((0, 0).into(), (1920, 1080).into()));
     output.with_state_mut(|state| {
-        let tag = Tag::new("1".to_string());
-        tag.set_active(true);
-        state.add_tags([tag]);
+        let workspace = Workspace::new("1".to_string());
+        workspace.set_active(true);
+        state.add_workspaces([workspace]);
     });
     fixture.pinnacle().focus_output(&output);
 
@@ -69,10 +69,10 @@ fn window_floating_size_heuristic_works() {
 }
 
 #[test_log::test]
-fn window_spawned_without_tags_gets_tags_after_add() {
+fn window_spawned_without_workspaces_gets_workspaces_after_add() {
     let (mut fixture, output) = set_up();
 
-    output.with_state_mut(|state| state.tags.clear());
+    output.with_state_mut(|state| state.workspaces.clear());
 
     let id = fixture.add_client();
 
@@ -93,14 +93,14 @@ fn window_spawned_without_tags_gets_tags_after_add() {
     assert!(
         fixture.pinnacle().unmapped_windows[0]
             .window
-            .with_state(|state| state.tags.is_empty())
+            .with_state(|state| state.workspaces.is_empty())
     );
 
     assert!(fixture.pinnacle().windows.is_empty());
     assert_eq!(fixture.pinnacle().unmapped_windows.len(), 1);
 
     fixture.spawn_blocking(|| {
-        let _ = pinnacle_api::tag::add(
+        let _ = pinnacle_api::workspace::add(
             &pinnacle_api::output::get_focused().unwrap(),
             ["1", "2", "3"],
         );
@@ -117,17 +117,17 @@ fn window_spawned_without_tags_gets_tags_after_add() {
     assert!(
         fixture.pinnacle().unmapped_windows[0]
             .window
-            .with_state(|state| !state.tags.is_empty())
+            .with_state(|state| !state.workspaces.is_empty())
     );
 }
 #[test_log::test]
-fn window_tags_update_after_set_geometry() {
+fn window_workspaces_update_after_set_geometry() {
     let (mut fixture, output1) = set_up();
     let output2 = fixture.add_output(Rectangle::new((1920, 0).into(), (1920, 1080).into()));
     output2.with_state_mut(|state| {
-        let tag = Tag::new("1".to_string());
-        tag.set_active(true);
-        state.add_tags([tag]);
+        let workspace = Workspace::new("1".to_string());
+        workspace.set_active(true);
+        state.add_workspaces([workspace]);
     });
     fixture.pinnacle().focus_output(&output1);
 
@@ -135,8 +135,8 @@ fn window_tags_update_after_set_geometry() {
 
     fixture.spawn_floating_window_with(id, (500, 500), |_| ());
 
-    let tags = fixture.pinnacle().windows[0].with_state(|state| state.tags.clone());
-    assert_eq!(tags, output1.with_state(|state| state.tags.clone()));
+    let workspaces = fixture.pinnacle().windows[0].with_state(|state| state.workspaces.clone());
+    assert_eq!(workspaces, output1.with_state(|state| state.workspaces.clone()));
 
     fixture.spawn_blocking(|| {
         pinnacle_api::window::get_focused()
@@ -144,8 +144,8 @@ fn window_tags_update_after_set_geometry() {
             .set_geometry(2000, None, None, None);
     });
 
-    let tags = fixture.pinnacle().windows[0].with_state(|state| state.tags.clone());
-    assert_eq!(tags, output2.with_state(|state| state.tags.clone()));
+    let workspaces = fixture.pinnacle().windows[0].with_state(|state| state.workspaces.clone());
+    assert_eq!(workspaces, output2.with_state(|state| state.workspaces.clone()));
 }
 
 #[test_log::test]
@@ -179,9 +179,9 @@ fn window_move_to_output() {
     let output_geo = Rectangle::new((1920, 0).into(), (1920, 1080).into());
     let output2 = fixture.add_output(output_geo);
     output2.with_state_mut(|state| {
-        let tag = Tag::new("1".to_string());
-        tag.set_active(true);
-        state.add_tags([tag]);
+        let workspace = Workspace::new("1".to_string());
+        workspace.set_active(true);
+        state.add_workspaces([workspace]);
     });
     fixture.pinnacle().focus_output(&output1);
 
@@ -191,8 +191,8 @@ fn window_move_to_output() {
     fixture.spawn_floating_window_with(id, (500, 500), |_| ());
 
     // sanity checks
-    let tags = fixture.pinnacle().windows[0].with_state(|state| state.tags.clone());
-    assert_eq!(tags, output1.with_state(|state| state.tags.clone()));
+    let workspaces = fixture.pinnacle().windows[0].with_state(|state| state.workspaces.clone());
+    assert_eq!(workspaces, output1.with_state(|state| state.workspaces.clone()));
     let win_geo = fixture.pinnacle().windows[0].geometry();
     assert!(!output_geo.overlaps(win_geo));
 
@@ -202,9 +202,9 @@ fn window_move_to_output() {
             .move_to_output(&handle)
     });
 
-    // check tags were updated
-    let tags = fixture.pinnacle().windows[0].with_state(|state| state.tags.clone());
-    assert_eq!(tags, output2.with_state(|state| state.tags.clone()));
+    // check workspaces were updated
+    let workspaces = fixture.pinnacle().windows[0].with_state(|state| state.workspaces.clone());
+    assert_eq!(workspaces, output2.with_state(|state| state.workspaces.clone()));
 }
 
 #[test_log::test]

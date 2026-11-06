@@ -1,0 +1,1354 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+
+// The quick settings panel, modelled on the one in Android on Pixel phones.
+//
+// The compositor blurs what's behind the panel and rounds it off to `panel-height`
+// with the same radius, and this draws the shade and everything else on top of that.
+
+import { Icons } from "icons.slint";
+import { Icon, Motion, Theme } from "theme.slint";
+
+export enum Page {
+    tiles,
+    wifi,
+    bluetooth,
+    sound,
+    power,
+}
+
+export struct TileItem {
+    kind: int,
+    label: string,
+    subtitle: string,
+    active: bool,
+    // Whether it has a page of its own, which makes it two buttons in one.
+    dual: bool,
+    large: bool,
+    // Which page of tiles it's on.
+    page: int,
+    column: int,
+    row: int,
+    // Otherwise, it's one of the tiles that can be added while editing.
+    shown: bool,
+    selected: bool,
+}
+
+export struct NetworkItem {
+    ssid: string,
+    bars: int,
+    secured: bool,
+    active: bool,
+    known: bool,
+    connecting: bool,
+}
+
+export struct BluetoothItem {
+    id: string,
+    name: string,
+    icon: string,
+    connected: bool,
+    paired: bool,
+    connecting: bool,
+    battery: int,
+}
+
+export struct SinkItem {
+    name: string,
+    description: string,
+    active: bool,
+}
+
+global Sizes {
+    out property <length> padding: 16px;
+    out property <length> spacing: 10px;
+    out property <length> slider-height: 38px;
+    out property <length> tile-height: 64px;
+    out property <length> active-radius: 22px;
+    out property <length> row-height: 56px;
+    out property <length> header-height: 40px;
+    out property <length> footer-height: 28px;
+    out property <length> dialog-footer-height: 48px;
+    // How far tiles stay from the outline while editing.
+    out property <length> edit-inset: 10px;
+}
+
+// A round button with an icon.
+component IconButton {
+    in property <string> icon;
+    in property <length> size: 40px;
+    in property <length> icon-size: 20px;
+    callback clicked();
+
+    width: size;
+    height: size;
+
+    Rectangle {
+        border-radius: self.height / 2;
+        background: touch.has-hover ? Theme.on-surface.with-alpha(0.12) : transparent;
+
+        animate background {
+            duration: Motion.short;
+            easing: Motion.emphasized;
+        }
+    }
+
+    Icon {
+        x: (parent.width - self.width) / 2;
+        y: (parent.height - self.height) / 2;
+        size: icon-size;
+        commands: icon;
+    }
+
+    touch := TouchArea {
+        clicked => {
+            root.clicked();
+        }
+    }
+}
+
+// A filled pill with text.
+component TextButton {
+    in property <string> text;
+    in property <string> icon;
+    in property <bool> filled: true;
+    callback clicked();
+
+    height: 36px;
+    min-width: label.preferred-width + (icon != "" ? 64px : 36px);
+
+    Rectangle {
+        border-radius: self.height / 2;
+        background: filled
+            ? Theme.accent
+            : Theme.on-surface.with-alpha(touch.has-hover ? 0.18 : 0.1);
+    }
+
+    if icon != "": Icon {
+        x: 14px;
+        y: (parent.height - self.height) / 2;
+        size: 18px;
+        commands: icon;
+    }
+
+    label := Text {
+        x: icon != "" ? 40px : (parent.width - self.width) / 2;
+        y: (parent.height - self.height) / 2;
+        text: text;
+        font-size: 13px;
+        font-weight: 600;
+        color: filled ? Theme.on-primary : Theme.on-surface;
+    }
+
+    touch := TouchArea {
+        clicked => {
+            root.clicked();
+        }
+    }
+}
+
+// A Material 3 expressive slider: a thick track split by a thin handle standing out of it,
+// with the icon at the far end so that it stays clear of the handle.
+export component Slider {
+    in property <string> icon;
+    in property <float> value;
+    in property <bool> enabled: true;
+    callback changed(float);
+
+    property <length> outer-radius: 14px;
+    property <length> inner-radius: 4px;
+    property <length> handle-gap: 5px;
+    property <length> end-space: 10px;
+    property <float> dragged;
+    // After letting go, `value` is out of date until the system has caught up.
+    property <bool> settling;
+    property <float> shown: touch.pressed || settling ? dragged : value;
+    property <length> handle-x: end-space + clamp(shown, 0, 1) * (self.width - end-space * 2);
+
+    height: Sizes.slider-height;
+
+    changed value => {
+        if abs(value - dragged) < 0.015 {
+            settling = false;
+        }
+    }
+
+    // In case the system ends up at a different value.
+    Timer {
+        interval: 2500ms;
+        running: settling && !touch.pressed;
+        triggered => {
+            settling = false;
+        }
+    }
+
+    Rectangle {
+        x: 0;
+        width: max(handle-x - handle-gap, 0px);
+        border-top-left-radius: outer-radius;
+        border-bottom-left-radius: outer-radius;
+        border-top-right-radius: inner-radius;
+        border-bottom-right-radius: inner-radius;
+        background: enabled ? Theme.accent : Theme.on-surface.with-alpha(0.3);
+    }
+
+    Rectangle {
+        x: handle-x + handle-gap;
+        width: max(root.width - self.x, 0px);
+        border-top-left-radius: inner-radius;
+        border-bottom-left-radius: inner-radius;
+        border-top-right-radius: outer-radius;
+        border-bottom-right-radius: outer-radius;
+        background: Theme.on-surface.with-alpha(0.16);
+    }
+
+    Rectangle {
+        x: handle-x - self.width / 2;
+        y: -4px;
+        width: 4px;
+        height: parent.height + 8px;
+        border-radius: 2px;
+        background: enabled ? Theme.accent : Theme.on-surface.with-alpha(0.4);
+    }
+
+    Icon {
+        x: parent.width - self.width - 11px;
+        y: (parent.height - self.height) / 2;
+        size: 18px;
+        commands: icon;
+        fill: handle-x > self.x + self.width + handle-gap && enabled
+            ? Theme.on-primary
+            : Theme.on-surface;
+    }
+
+    touch := TouchArea {
+        function update() {
+            root.dragged = clamp(
+                (self.mouse-x - end-space) / (root.width - end-space * 2), 0, 1);
+            root.changed(root.dragged);
+        }
+        pointer-event(event) => {
+            if event.kind == PointerEventKind.down {
+                self.update();
+            }
+            if event.kind == PointerEventKind.up {
+                root.settling = true;
+            }
+        }
+        moved => {
+            self.update();
+        }
+        scroll-event(event) => {
+            root.dragged = clamp(root.shown + (event.delta-y > 0 ? 0.05 : -0.05), 0, 1);
+            root.settling = true;
+            root.changed(root.dragged);
+            accept
+        }
+    }
+}
+
+export component Switch {
+    in property <bool> on;
+    callback toggled();
+
+    width: 52px;
+    height: 32px;
+
+    Rectangle {
+        border-radius: self.height / 2;
+        background: on ? Theme.accent : Theme.on-surface.with-alpha(0.16);
+
+        animate background {
+            duration: Motion.short;
+            easing: Motion.emphasized;
+        }
+    }
+
+    Rectangle {
+        x: on ? parent.width - self.width - 4px : 8px;
+        y: (parent.height - self.height) / 2;
+        width: on ? 24px : 16px;
+        height: self.width;
+        border-radius: self.height / 2;
+        background: on ? Theme.on-primary : Theme.on-surface-variant;
+
+        animate x, width {
+            duration: Motion.medium;
+            easing: Motion.emphasized;
+        }
+    }
+
+    TouchArea {
+        clicked => {
+            root.toggled();
+        }
+    }
+}
+
+component Tile {
+    in property <TileItem> item;
+    in property <string> icon;
+    in property <bool> editing;
+    callback clicked();
+    callback toggled();
+    callback details();
+    // How far the handle was dragged since the last call.
+    callback handle-dragged(length);
+    callback handle-released();
+
+    // Tiles are shown as they'd be when off while editing, like on a phone.
+    property <bool> active: item.active && !editing;
+    property <bool> two-parts: item.dual && item.large;
+    // A tile with two buttons keeps its background and colors only the icon.
+    property <bool> filled: active && !two-parts;
+    property <color> content: filled ? Theme.on-primary : Theme.on-surface;
+    property <length> icon-box: 48px;
+    property <duration> hold-time: 500ms;
+
+    Rectangle {
+        border-radius: active ? Sizes.active-radius : self.height / 2;
+        background: filled
+            ? Theme.accent
+            : Theme.on-surface.with-alpha(body.has-hover ? 0.2 : 0.13);
+        border-width: item.selected ? 2px : 0px;
+        border-color: Theme.accent;
+
+        animate background {
+            duration: Motion.short;
+            easing: Motion.emphasized;
+        }
+
+        animate border-radius {
+            duration: Motion.medium;
+            easing: Motion.emphasized;
+        }
+    }
+
+    body := TouchArea {
+        property <bool> held;
+
+        pointer-event(event) => {
+            if event.button == PointerEventButton.right
+                && event.kind == PointerEventKind.up
+                && !editing {
+                root.details();
+            }
+            if event.button == PointerEventButton.left && event.kind == PointerEventKind.down {
+                self.held = false;
+            }
+        }
+        clicked => {
+            if editing {
+                root.clicked();
+            } else if !self.held {
+                if two-parts {
+                    root.details();
+                } else {
+                    root.toggled();
+                }
+            }
+        }
+
+        // Holding a tile opens its page, like on a phone.
+        Timer {
+            interval: hold-time;
+            running: body.pressed && !body.held && !editing;
+            triggered => {
+                body.held = true;
+                if item.dual {
+                    root.details();
+                }
+            }
+        }
+    }
+
+    if two-parts: Rectangle {
+        x: 8px;
+        y: (parent.height - self.height) / 2;
+        width: icon-box;
+        height: icon-box;
+        border-radius: active ? 14px : self.height / 2;
+        background: active
+            ? Theme.accent
+            : Theme.on-surface.with-alpha(toggle-touch.has-hover && !editing ? 0.2 : 0.12);
+
+        animate border-radius {
+            duration: Motion.medium;
+            easing: Motion.emphasized;
+        }
+
+        toggle-touch := TouchArea {
+            enabled: !editing;
+            clicked => {
+                root.toggled();
+            }
+        }
+    }
+
+    if item.large: Icon {
+        x: 8px + (icon-box - self.size) / 2;
+        y: (parent.height - self.height) / 2;
+        size: 22px;
+        commands: icon;
+        fill: active ? Theme.on-primary : Theme.on-surface;
+    }
+
+    if !item.large: Icon {
+        x: (parent.width - self.width) / 2;
+        y: (parent.height - self.height) / 2;
+        size: 24px;
+        commands: icon;
+        fill: content;
+    }
+
+    if item.large: VerticalLayout {
+        x: icon-box + 16px;
+        width: parent.width - self.x - (two-parts && !editing ? 28px : 14px);
+        alignment: center;
+        spacing: 1px;
+
+        Text {
+            text: item.label;
+            font-size: 13px;
+            font-weight: 600;
+            color: content;
+            overflow: elide;
+        }
+
+        if item.subtitle != "" && !editing: Text {
+            text: item.subtitle;
+            font-size: 11px;
+            color: content.with-alpha(0.78);
+            overflow: elide;
+        }
+    }
+
+    if two-parts && !editing: Icon {
+        x: parent.width - 26px;
+        y: (parent.height - self.height) / 2;
+        size: 16px;
+        commands: Icons.chevron-right;
+        fill: Theme.on-surface-variant;
+    }
+
+    // Sits on the outline of the selected tile. Dragging it sideways resizes the tile.
+    if item.selected: Rectangle {
+        x: parent.width - self.width / 2 - 1px;
+        y: (parent.height - self.height) / 2;
+        width: 10px;
+        height: 24px;
+        border-radius: self.width / 2;
+        background: Theme.accent;
+
+        TouchArea {
+            x: -9px;
+            y: -10px;
+            width: 28px;
+            height: 44px;
+
+            pointer-event(event) => {
+                if event.kind == PointerEventKind.up && event.button == PointerEventButton.left {
+                    root.handle-released();
+                }
+            }
+            moved => {
+                if self.pressed {
+                    root.handle-dragged(self.mouse-x - self.pressed-x);
+                }
+            }
+        }
+    }
+}
+
+export component Row {
+    in property <string> icon;
+    in property <string> title;
+    in property <string> subtitle;
+    in property <bool> active;
+    // An icon at the end of the row, which is a button of its own.
+    in property <string> end-icon;
+    callback clicked();
+    callback end-clicked();
+
+    height: Sizes.row-height;
+
+    Rectangle {
+        y: 2px;
+        height: parent.height - 4px;
+        border-radius: self.height / 2;
+        background: active
+            ? Theme.accent
+            : touch.has-hover ? Theme.on-surface.with-alpha(0.12) : transparent;
+
+        animate background {
+            duration: Motion.short;
+            easing: Motion.emphasized;
+        }
+    }
+
+    touch := TouchArea {
+        clicked => {
+            root.clicked();
+        }
+    }
+
+    Icon {
+        x: 16px;
+        y: (parent.height - self.height) / 2;
+        size: 22px;
+        commands: icon;
+        fill: active ? Theme.on-primary : Theme.on-surface;
+    }
+
+    VerticalLayout {
+        x: 52px;
+        width: parent.width - self.x - (end-icon != "" ? 56px : 14px);
+        alignment: center;
+
+        Text {
+            text: title;
+            font-size: 13px;
+            font-weight: 600;
+            color: active ? Theme.on-primary : Theme.on-surface;
+            overflow: elide;
+        }
+
+        if subtitle != "": Text {
+            text: subtitle;
+            font-size: 12px;
+            color: (active ? Theme.on-primary : Theme.on-surface-variant).with-alpha(0.85);
+            overflow: elide;
+        }
+    }
+
+    if end-icon != "": Rectangle {
+        x: parent.width - self.width - 8px;
+        y: (parent.height - self.height) / 2;
+        width: 36px;
+        height: 36px;
+        border-radius: self.height / 2;
+        background: end-touch.has-hover ? Theme.on-surface.with-alpha(0.16) : transparent;
+
+        Icon {
+            x: 8px;
+            y: 8px;
+            size: 20px;
+            commands: end-icon;
+            fill: active ? Theme.on-primary : Theme.on-surface;
+        }
+
+        end-touch := TouchArea {
+            clicked => {
+                root.end-clicked();
+            }
+        }
+    }
+}
+
+// A heading between the rows of a list.
+export component Section inherits Text {
+    height: 28px;
+    font-size: 12px;
+    font-weight: 600;
+    color: Theme.on-surface-variant;
+    vertical-alignment: center;
+}
+
+// Asks for a Wi-Fi network's password.
+export component PasswordPrompt {
+    in property <string> ssid;
+    callback submit(string);
+
+    height: 52px;
+
+    public function focus-input() {
+        input.focus();
+    }
+
+    Rectangle {
+        x: 0;
+        y: 2px;
+        width: parent.width - 96px;
+        height: parent.height - 4px;
+        border-radius: 16px;
+        background: Theme.on-surface.with-alpha(0.1);
+        border-width: 1px;
+        border-color: input.has-focus ? Theme.accent : Theme.on-surface.with-alpha(0.2);
+
+        input := TextInput {
+            x: 14px;
+            width: parent.width - 28px;
+            input-type: InputType.password;
+            font-size: 13px;
+            color: Theme.on-surface;
+            vertical-alignment: center;
+            single-line: true;
+            accepted => {
+                root.submit(self.text);
+            }
+        }
+
+        if input.text == "": Text {
+            x: 14px;
+            text: "Password";
+            font-size: 13px;
+            color: Theme.on-surface-variant;
+            vertical-alignment: center;
+        }
+    }
+
+    Rectangle {
+        x: parent.width - 88px;
+        y: 2px;
+        width: 88px;
+        height: parent.height - 4px;
+        border-radius: self.height / 2;
+        background: input.text.character-count >= 8
+            ? Theme.accent
+            : Theme.on-surface.with-alpha(0.14);
+
+        Text {
+            text: "Connect";
+            font-size: 13px;
+            font-weight: 600;
+            color: input.text.character-count >= 8 ? Theme.on-primary : Theme.on-surface-variant;
+        }
+
+        TouchArea {
+            clicked => {
+                if input.text.character-count >= 8 {
+                    root.submit(input.text);
+                }
+            }
+        }
+    }
+}
+
+export component QuickSettings inherits Window {
+    // Asked to be open. It stays on screen until it has animated away.
+    in property <bool> open;
+    in-out property <Page> page: Page.tiles;
+    in property <bool> editing;
+    in property <string> date;
+
+    // One for each kind of tile, in order.
+    in property <[TileItem]> tiles;
+    in property <int> tile-pages: 1;
+    // How many rows the tiles take up on a page.
+    in property <int> tile-rows: 3;
+    // How many rows of tiles that can be added there are, while editing.
+    in property <int> hidden-rows;
+    in property <bool> has-selection;
+
+    in property <float> brightness: -1;
+    in property <float> volume;
+    in property <bool> muted;
+
+    in property <bool> wifi-enabled;
+    in property <[NetworkItem]> networks;
+    in property <bool> bluetooth-enabled;
+    in property <[BluetoothItem]> bluetooth-devices;
+    in property <[SinkItem]> sinks;
+    in property <bool> mic-muted;
+    // The last thing that went wrong, if it's worth telling.
+    in property <string> error;
+
+    // How much of the panel is visible right now, for the blur behind it.
+    out property <length> panel-height: target-height * reveal;
+    out property <length> panel-radius: 28px;
+
+    callback edit-toggled();
+    callback tile-clicked(int);
+    callback tile-toggled(int);
+    callback tile-details(int);
+    callback tile-resized(int);
+    callback selection-removed();
+    callback page-changed(Page);
+    callback settings-opened(Page);
+    callback brightness-changed(float);
+    callback volume-changed(float);
+    callback wifi-toggled();
+    callback network-clicked(string);
+    callback network-forgotten(string);
+    callback password-entered(string, string);
+    callback bluetooth-toggled();
+    callback bluetooth-clicked(string);
+    callback sink-chosen(string);
+    callback mic-toggled();
+    callback suspend();
+    callback restart();
+    callback shut-down();
+    callback log-out();
+
+    // The tiles' icons, by `TileItem.kind`.
+    property <[string]> active-icons: [
+        Icons.wifi, Icons.bluetooth, Icons.airplane, Icons.contrast,
+        Icons.night-filled, Icons.battery-plus, Icons.coffee, Icons.mic, Icons.volume-up,
+        Icons.do-not-disturb,
+    ];
+    property <[string]> inactive-icons: [
+        Icons.wifi-off, Icons.bluetooth-off, Icons.airplane, Icons.contrast,
+        Icons.night-filled, Icons.battery-plus, Icons.coffee, Icons.mic-off, Icons.volume-off,
+        Icons.do-not-disturb,
+    ];
+
+    property <length> content-width: self.width - Sizes.padding * 2;
+
+    property <length> grid-inset: editing ? Sizes.edit-inset : 0px;
+    property <length> cell-width: (content-width - grid-inset * 2 - Sizes.spacing * 3) / 4;
+    property <length> grid-height:
+        tile-rows * (Sizes.tile-height + Sizes.spacing) - Sizes.spacing;
+    property <length> hidden-height:
+        hidden-rows * (Sizes.tile-height + Sizes.spacing);
+    property <length> sliders-height:
+        (brightness >= 0 ? Sizes.slider-height + Sizes.spacing : 0px)
+        + Sizes.slider-height + Sizes.spacing + 4px;
+
+    property <length> tile-grid-top: editing
+        ? Sizes.padding + Sizes.header-height + 58px + grid-inset
+        : Sizes.padding + Sizes.header-height + 8px + sliders-height;
+
+    // What's above the lists in the dialogs. Only the power menu has a heading.
+    property <length> dialog-top: page == Page.power ? 80px : error != "" ? 28px : 0px;
+    property <bool> has-switch: page == Page.wifi || page == Page.bluetooth;
+    property <length> list-top: dialog-top + (has-switch ? 52px : 0px);
+    property <int> list-rows: max(
+        page == Page.wifi ? networks.length
+            : page == Page.bluetooth ? (bluetooth-enabled ? bluetooth-devices.length : 1)
+            : page == Page.sound ? sinks.length + 1
+            : 4, 1);
+    property <length> list-height: min(
+        list-rows * Sizes.row-height
+            + (page == Page.bluetooth && bluetooth-enabled ? 56px : 0px)
+            + (page == Page.wifi && prompt-ssid != "" ? 52px : 0px),
+        Sizes.row-height * 5);
+    property <length> tiles-page-height:
+        Sizes.header-height + 8px + sliders-height + grid-height + 6px + Sizes.footer-height;
+    property <length> edit-page-height:
+        Sizes.header-height + 58px + grid-height + grid-inset * 2
+        + (hidden-rows > 0 ? 28px + 8px + hidden-height : 0px);
+
+    property <length> target-height: Sizes.padding * 2 + (
+        page != Page.tiles
+            ? list-top + list-height + Sizes.dialog-footer-height
+            : editing ? edit-page-height : tiles-page-height);
+
+    property <float> reveal: open ? 1 : 0;
+    property <string> prompt-ssid;
+    // The network that one more click forgets.
+    property <string> forget-ssid;
+
+    // Which page of tiles is showing.
+    property <int> tile-page;
+    property <int> shown-page: editing ? 0 : min(tile-page, tile-pages - 1);
+    // Keeps one flick of a touchpad from going through all of the pages.
+    property <bool> page-settling;
+
+    // How far the handle of the selected tile was dragged.
+    property <length> handle-drag;
+
+    animate reveal {
+        duration: Motion.long;
+        easing: Motion.emphasized;
+    }
+
+    animate target-height {
+        duration: Motion.medium;
+        easing: Motion.emphasized;
+    }
+
+    function turn-page(direction: int) {
+        if !page-settling {
+            tile-page = clamp(shown-page + direction, 0, tile-pages - 1);
+            page-settling = true;
+        }
+    }
+
+    function signal-text(bars: int) -> string {
+        if bars >= 3 {
+            return "Strong signal";
+        }
+        return bars == 2 ? "Good signal" : "Weak signal";
+    }
+
+    function network-subtitle(network: NetworkItem) -> string {
+        if network.connecting {
+            return "Connecting…";
+        }
+        if network.active {
+            return "Connected, \{signal-text(network.bars)}";
+        }
+        if network.known {
+            return "Saved, \{signal-text(network.bars)}";
+        }
+        return (network.secured ? "Secured, " : "Open, ") + signal-text(network.bars);
+    }
+
+    function device-subtitle(device: BluetoothItem) -> string {
+        if device.connecting {
+            return "Connecting…";
+        }
+        if device.connected {
+            return device.battery >= 0 ? "Active, \{device.battery}% battery" : "Active";
+        }
+        return device.paired ? "Saved" : "Tap to pair";
+    }
+
+    function device-icon(name: string) -> string {
+        if name == "audio-headphones" || name == "audio-headset" || name == "audio-card" {
+            return Icons.headphones;
+        }
+        if name == "input-mouse" {
+            return Icons.mouse;
+        }
+        if name == "input-keyboard" {
+            return Icons.keyboard;
+        }
+        return Icons.devices;
+    }
+
+    function close-dialog() {
+        prompt-ssid = "";
+        forget-ssid = "";
+        root.page-changed(Page.tiles);
+    }
+
+    background: transparent;
+    default-font-family: "Inter";
+
+    Timer {
+        interval: 350ms;
+        running: page-settling;
+        triggered => {
+            page-settling = false;
+        }
+    }
+
+    Rectangle {
+        y: 0;
+        height: panel-height;
+        clip: true;
+        border-radius: panel-radius;
+        // The shade over the blur, which is dark or light with the theme.
+        background: Theme.surface.with-alpha(0.6);
+        opacity: min(reveal * 2, 1);
+
+        // Clicks here shouldn't reach what's behind the panel's empty parts.
+        TouchArea { }
+
+        // The top of the panel, with the time of day to the left of it in the bar.
+        if page == Page.tiles && !editing: Rectangle {
+            x: Sizes.padding;
+            y: Sizes.padding;
+            width: content-width;
+            height: Sizes.header-height;
+
+            Text {
+                x: 4px;
+                width: parent.width - 100px;
+                text: error != "" ? error : date;
+                font-size: 15px;
+                font-weight: 600;
+                color: error != "" ? Theme.error : Theme.on-surface;
+                vertical-alignment: center;
+                overflow: elide;
+            }
+
+            HorizontalLayout {
+                alignment: end;
+                spacing: 4px;
+
+                IconButton {
+                    icon: Icons.settings;
+                    clicked => {
+                        root.settings-opened(Page.tiles);
+                    }
+                }
+
+                IconButton {
+                    icon: Icons.power;
+                    clicked => {
+                        root.page-changed(Page.power);
+                    }
+                }
+            }
+        }
+
+        if page == Page.tiles && !editing: Rectangle {
+            x: Sizes.padding;
+            y: Sizes.padding + Sizes.header-height + 8px;
+            width: content-width;
+            height: sliders-height;
+
+            if brightness >= 0: Slider {
+                x: 0;
+                y: 4px;
+                width: parent.width;
+                icon: Icons.brightness;
+                value: brightness;
+                changed(value) => {
+                    root.brightness-changed(value);
+                }
+            }
+
+            Slider {
+                x: 0;
+                y: 4px + (brightness >= 0 ? Sizes.slider-height + Sizes.spacing : 0px);
+                width: parent.width;
+                icon: muted ? Icons.volume-off : Icons.volume-up;
+                value: volume;
+                enabled: !muted;
+                changed(value) => {
+                    root.volume-changed(value);
+                }
+            }
+        }
+
+        if page == Page.tiles && editing: Rectangle {
+            x: Sizes.padding;
+            y: Sizes.padding;
+            width: content-width;
+            height: Sizes.header-height;
+
+            IconButton {
+                x: -4px;
+                icon: Icons.arrow-back;
+                clicked => {
+                    root.edit-toggled();
+                }
+            }
+
+            if has-selection: TextButton {
+                x: parent.width - self.width;
+                y: (parent.height - self.height) / 2;
+                text: "Remove";
+                clicked => {
+                    root.selection-removed();
+                }
+            }
+        }
+
+        if page == Page.tiles && editing: VerticalLayout {
+            x: Sizes.padding + 4px;
+            y: Sizes.padding + Sizes.header-height + 4px;
+            width: content-width - 8px;
+            height: 46px;
+
+            Text {
+                text: "Edit tiles";
+                font-size: 20px;
+                font-weight: 500;
+                color: Theme.on-surface;
+            }
+
+            Text {
+                text: has-selection
+                    ? "Tap a tile to swap places, or drag the handle to resize"
+                    : "Select a tile to rearrange and resize it";
+                font-size: 12px;
+                color: Theme.on-surface-variant;
+                overflow: elide;
+            }
+        }
+
+        // What's being edited is outlined, as nothing in there does what it usually does.
+        if page == Page.tiles && editing: Rectangle {
+            x: Sizes.padding;
+            y: Sizes.padding + Sizes.header-height + 58px;
+            width: content-width;
+            height: grid-height + grid-inset * 2;
+            border-radius: panel-radius - 4px;
+            border-width: 1.5px;
+            border-color: Theme.accent;
+        }
+
+        if page == Page.tiles && editing && hidden-rows > 0: Section {
+            x: Sizes.padding + 4px;
+            y: Sizes.padding + Sizes.header-height + 58px + grid-height + grid-inset * 2 + 8px;
+            text: "Add tiles";
+        }
+
+        if page == Page.tiles: tile-grid := Rectangle {
+            x: Sizes.padding + grid-inset;
+            y: tile-grid-top;
+            width: content-width - grid-inset * 2;
+            height: grid-height + (editing ? hidden-height + 44px : 0px);
+            // The handle of a tile at the edge of the grid is outside of it.
+            clip: !editing;
+
+            // Behind the tiles, which leave scrolling to this.
+            TouchArea {
+                scroll-event(event) => {
+                    if editing || tile-pages <= 1 {
+                        return reject;
+                    }
+                    if event.delta-y != 0 || event.delta-x != 0 {
+                        turn-page(event.delta-y + event.delta-x < 0 ? 1 : -1);
+                    }
+                    accept
+                }
+            }
+
+            for item in tiles: Tile {
+                property <length> base-width: item.large ? cell-width * 2 + Sizes.spacing : cell-width;
+                property <length> large-width: cell-width * 2 + Sizes.spacing;
+
+                x: (cell-width + Sizes.spacing) * item.column
+                    + (tile-grid.width + Sizes.spacing) * (item.page - shown-page);
+                y: (Sizes.tile-height + Sizes.spacing) * item.row
+                    + (item.shown ? 0px : Sizes.spacing + 28px + 8px);
+                width: item.selected
+                    ? clamp(base-width + handle-drag, cell-width, large-width)
+                    : base-width;
+                height: Sizes.tile-height;
+                // Only editing shows the tiles that aren't in use.
+                visible: item.shown || editing;
+                item: item;
+                editing: editing;
+                icon: item.active || editing
+                    ? active-icons[item.kind]
+                    : inactive-icons[item.kind];
+                clicked => {
+                    root.tile-clicked(item.kind);
+                }
+                toggled => {
+                    root.tile-toggled(item.kind);
+                }
+                details => {
+                    root.tile-details(item.kind);
+                }
+                handle-dragged(distance) => {
+                    handle-drag = clamp(
+                        handle-drag + distance,
+                        cell-width - base-width,
+                        large-width - base-width);
+                }
+                handle-released => {
+                    // Whichever size it's closest to is the one it gets.
+                    if abs(handle-drag) > (large-width - cell-width) / 2
+                        || handle-drag == 0 {
+                        root.tile-resized(item.kind);
+                    }
+                    handle-drag = 0;
+                }
+                animate x, y {
+                    duration: Motion.medium;
+                    easing: Motion.emphasized;
+                }
+            }
+        }
+
+        // The dots for going through the pages of tiles, and the way to edit them.
+        if page == Page.tiles && !editing: Rectangle {
+            x: Sizes.padding;
+            y: panel-height - Sizes.padding - self.height + 4px;
+            width: content-width;
+            height: Sizes.footer-height;
+
+            if tile-pages > 1: HorizontalLayout {
+                alignment: center;
+                spacing: 6px;
+
+                for index in tile-pages: Rectangle {
+                    y: (parent.height - self.height) / 2;
+                    width: index == shown-page ? 18px : 7px;
+                    height: 7px;
+                    border-radius: self.height / 2;
+                    background: index == shown-page
+                        ? Theme.on-surface
+                        : Theme.on-surface.with-alpha(0.4);
+
+                    animate width {
+                        duration: Motion.medium;
+                        easing: Motion.emphasized;
+                    }
+
+                    // Much larger than the dot, which is tiny.
+                    TouchArea {
+                        x: -3px;
+                        y: -10px;
+                        width: parent.width + 6px;
+                        height: 28px;
+                        clicked => {
+                            tile-page = index;
+                        }
+                    }
+                }
+            }
+
+            IconButton {
+                x: parent.width - self.width;
+                size: 28px;
+                icon-size: 16px;
+                icon: Icons.edit;
+                clicked => {
+                    root.edit-toggled();
+                }
+            }
+        }
+
+        // Tiles open these like the dialogs on a phone.
+        if page != Page.tiles: Rectangle {
+            x: Sizes.padding;
+            y: Sizes.padding;
+            width: content-width;
+            height: target-height - Sizes.padding * 2;
+
+            if page == Page.power: Text {
+                y: 0;
+                width: parent.width;
+                height: 32px;
+                text: "Power";
+                font-size: 20px;
+                font-weight: 500;
+                color: Theme.on-surface;
+                horizontal-alignment: center;
+                vertical-alignment: center;
+            }
+
+            if page == Page.power: Rectangle {
+                y: 64px;
+                width: parent.width * 0.5;
+                height: 3px;
+                border-radius: 1.5px;
+                background: Theme.on-surface.with-alpha(0.14);
+            }
+
+            if error != "": Text {
+                y: page == Page.power ? 34px : 0px;
+                width: parent.width;
+                height: 20px;
+                text: error;
+                font-size: 12px;
+                color: Theme.error;
+                horizontal-alignment: center;
+                vertical-alignment: center;
+                overflow: elide;
+            }
+
+            if page == Page.power && error == "": Text {
+                y: 34px;
+                width: parent.width;
+                height: 20px;
+                text: "Choose what to do";
+                font-size: 12px;
+                color: Theme.on-surface-variant;
+                horizontal-alignment: center;
+                vertical-alignment: center;
+            }
+
+            if has-switch: Rectangle {
+                y: dialog-top;
+                height: 44px;
+
+                Text {
+                    x: 16px;
+                    text: page == Page.wifi ? "Use Wi-Fi" : "Use Bluetooth";
+                    font-size: 14px;
+                    font-weight: 500;
+                    color: Theme.on-surface;
+                    vertical-alignment: center;
+                }
+
+                Switch {
+                    x: parent.width - self.width - 8px;
+                    y: (parent.height - self.height) / 2;
+                    on: page == Page.wifi ? wifi-enabled : bluetooth-enabled;
+                    toggled => {
+                        if page == Page.wifi {
+                            root.wifi-toggled();
+                        } else {
+                            root.bluetooth-toggled();
+                        }
+                    }
+                }
+            }
+
+            Flickable {
+                x: 0;
+                y: list-top;
+                width: parent.width;
+                // The panel takes a moment to grow with the list, and the footer stays clear.
+                height: max(parent.height - list-top - Sizes.dialog-footer-height, 0px);
+
+                VerticalLayout {
+                    alignment: start;
+
+                    if page == Page.wifi && wifi-enabled && networks.length == 0: Row {
+                        icon: Icons.wifi;
+                        title: "Looking for networks…";
+                    }
+
+                    if page == Page.wifi && !wifi-enabled: Row {
+                        icon: Icons.wifi-off;
+                        title: "Wi-Fi is off";
+                    }
+
+                    if page == Page.wifi: VerticalLayout {
+                        for network in networks: VerticalLayout {
+                            Row {
+                                icon: network.bars >= 3
+                                    ? Icons.wifi
+                                    : Icons.wifi-bars[max(network.bars, 1) - 1];
+                                title: network.ssid;
+                                subtitle: network-subtitle(network);
+                                active: network.active;
+                                // Forgetting takes a second click, and a check mark shows that.
+                                end-icon: network.known
+                                    ? forget-ssid == network.ssid ? Icons.check : Icons.close
+                                    : network.secured ? Icons.lock : "";
+                                clicked => {
+                                    forget-ssid = "";
+                                    if network.secured && !network.known && !network.active {
+                                        prompt-ssid = prompt-ssid == network.ssid
+                                            ? ""
+                                            : network.ssid;
+                                    } else {
+                                        prompt-ssid = "";
+                                        root.network-clicked(network.ssid);
+                                    }
+                                }
+                                end-clicked => {
+                                    if network.known {
+                                        if forget-ssid == network.ssid {
+                                            forget-ssid = "";
+                                            root.network-forgotten(network.ssid);
+                                        } else {
+                                            forget-ssid = network.ssid;
+                                        }
+                                    }
+                                }
+                            }
+
+                            if prompt-ssid == network.ssid: PasswordPrompt {
+                                ssid: network.ssid;
+                                init => {
+                                    self.focus-input();
+                                }
+                                submit(password) => {
+                                    root.password-entered(network.ssid, password);
+                                    prompt-ssid = "";
+                                }
+                            }
+                        }
+                    }
+
+                    if page == Page.bluetooth && bluetooth-enabled && bluetooth-devices.length == 0: Row {
+                        icon: Icons.bluetooth;
+                        title: "Looking for devices…";
+                    }
+
+                    if page == Page.bluetooth && !bluetooth-enabled: Row {
+                        icon: Icons.bluetooth-off;
+                        title: "Bluetooth is off";
+                    }
+
+                    if page == Page.bluetooth && bluetooth-enabled: VerticalLayout {
+                        for device[index] in bluetooth-devices: VerticalLayout {
+                            if index == 0 && device.paired: Section {
+                                x: 16px;
+                                text: "Saved devices";
+                            }
+
+                            if !device.paired
+                                && (index == 0 || bluetooth-devices[index - 1].paired): Section {
+                                x: 16px;
+                                text: "Available devices";
+                            }
+
+                            Row {
+                                icon: device-icon(device.icon);
+                                title: device.name;
+                                subtitle: device-subtitle(device);
+                                active: device.connected;
+                                end-icon: device.paired ? Icons.settings : "";
+                                clicked => {
+                                    root.bluetooth-clicked(device.id);
+                                }
+                                end-clicked => {
+                                    root.settings-opened(Page.bluetooth);
+                                }
+                            }
+                        }
+                    }
+
+                    if page == Page.sound: VerticalLayout {
+                        for sink in sinks: Row {
+                            icon: sink.active ? Icons.volume-up : Icons.speaker;
+                            title: sink.description;
+                            subtitle: sink.active ? "Playing here" : "";
+                            active: sink.active;
+                            clicked => {
+                                root.sink-chosen(sink.name);
+                            }
+                        }
+
+                        Row {
+                            icon: mic-muted ? Icons.mic-off : Icons.mic;
+                            title: "Microphone";
+                            subtitle: mic-muted ? "Muted" : "On";
+                            clicked => {
+                                root.mic-toggled();
+                            }
+                        }
+                    }
+
+                    if page == Page.power: VerticalLayout {
+                        Row {
+                            icon: Icons.bedtime;
+                            title: "Suspend";
+                            clicked => {
+                                root.suspend();
+                            }
+                        }
+
+                        Row {
+                            icon: Icons.logout;
+                            title: "Log out";
+                            clicked => {
+                                root.log-out();
+                            }
+                        }
+
+                        Row {
+                            icon: Icons.restart;
+                            title: "Restart";
+                            clicked => {
+                                root.restart();
+                            }
+                        }
+
+                        Row {
+                            icon: Icons.power;
+                            title: "Shut down";
+                            clicked => {
+                                root.shut-down();
+                            }
+                        }
+                    }
+                }
+            }
+
+            HorizontalLayout {
+                y: parent.height - 40px;
+                height: 36px;
+                alignment: space-between;
+
+                TextButton {
+                    text: "Settings";
+                    icon: Icons.settings;
+                    filled: false;
+                    clicked => {
+                        root.settings-opened(page);
+                    }
+                }
+
+                TextButton {
+                    text: "Done";
+                    clicked => {
+                        close-dialog();
+                    }
+                }
+            }
+        }
+    }
+}

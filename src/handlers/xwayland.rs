@@ -84,7 +84,7 @@ impl XwmHandler for State {
         let mut unmapped = Unmapped {
             window: WindowElement::new(Window::new_x11_window(surface)),
             activation_token_data: None,
-            state: UnmappedState::WaitingForTags {
+            state: UnmappedState::WaitingForWorkspaces {
                 client_requests: ClientRequests::default(),
             },
         };
@@ -104,9 +104,9 @@ impl XwmHandler for State {
         if unmapped.window.output(&self.pinnacle).is_some() {
             self.pinnacle.request_window_rules(&mut unmapped);
         } else if let Some(output) = self.pinnacle.focused_output()
-            && output.with_state(|state| !state.tags.is_empty())
+            && output.with_state(|state| !state.workspaces.is_empty())
         {
-            unmapped.window.set_tags_to_output(output);
+            unmapped.window.set_workspaces_to_output(output);
             self.pinnacle.request_window_rules(&mut unmapped);
         }
 
@@ -133,7 +133,7 @@ impl XwmHandler for State {
             });
 
         if let Some(output) = self.pinnacle.focused_output() {
-            window.set_tags_to_output(output);
+            window.set_workspaces_to_output(output);
         }
 
         self.pinnacle.map_window_to(&window, loc);
@@ -264,7 +264,7 @@ impl XwmHandler for State {
                 });
         } else if let Some(unmapped) = self.pinnacle.unmapped_window_for_x11_surface_mut(&window) {
             match &mut unmapped.state {
-                UnmappedState::WaitingForTags { client_requests } => {
+                UnmappedState::WaitingForWorkspaces { client_requests } => {
                     client_requests.layout_mode = Some(FullscreenOrMaximized::Maximized);
                 }
                 UnmappedState::WaitingForRules {
@@ -296,7 +296,7 @@ impl XwmHandler for State {
                 });
         } else if let Some(unmapped) = self.pinnacle.unmapped_window_for_x11_surface_mut(&window) {
             match &mut unmapped.state {
-                UnmappedState::WaitingForTags { client_requests } => {
+                UnmappedState::WaitingForWorkspaces { client_requests } => {
                     client_requests
                         .layout_mode
                         .take_if(|mode| matches!(mode, FullscreenOrMaximized::Maximized));
@@ -328,7 +328,7 @@ impl XwmHandler for State {
                 });
         } else if let Some(unmapped) = self.pinnacle.unmapped_window_for_x11_surface_mut(&window) {
             match &mut unmapped.state {
-                UnmappedState::WaitingForTags { client_requests } => {
+                UnmappedState::WaitingForWorkspaces { client_requests } => {
                     client_requests.layout_mode = Some(FullscreenOrMaximized::Fullscreen);
                 }
                 UnmappedState::WaitingForRules {
@@ -360,7 +360,7 @@ impl XwmHandler for State {
                 });
         } else if let Some(unmapped) = self.pinnacle.unmapped_window_for_x11_surface_mut(&window) {
             match &mut unmapped.state {
-                UnmappedState::WaitingForTags { client_requests } => {
+                UnmappedState::WaitingForWorkspaces { client_requests } => {
                     client_requests
                         .layout_mode
                         .take_if(|mode| matches!(mode, FullscreenOrMaximized::Fullscreen));
@@ -601,7 +601,7 @@ impl Pinnacle {
             .iter()
             .filter_map(|z| z.window())
             .filter(|win| !win.is_x11_override_redirect())
-            .partition::<Vec<_>, _>(|win| win.is_on_active_tag());
+            .partition::<Vec<_>, _>(|win| win.is_on_active_workspace());
 
         let active_windows = active_windows.into_iter().flat_map(|win| win.x11_surface());
         let non_active_windows = non_active_windows

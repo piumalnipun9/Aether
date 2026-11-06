@@ -189,6 +189,9 @@ impl Winit {
                         WinitEvent::Focus(focused) => {
                             if focused {
                                 state.backend.winit_mut().reset_buffers(&output);
+                            } else {
+                                // Releases go to the window with focus, which isn't us anymore.
+                                state.release_all_keys();
                             }
                         }
                         WinitEvent::Input(input_evt) => {
@@ -410,7 +413,7 @@ impl Winit {
         pinnacle.send_frame_callbacks(&self.output, None);
 
         // At the end cuz borrow checker
-        if pinnacle.cursor_state.is_current_cursor_animated() {
+        if pinnacle.cursor_state.is_current_cursor_animated() || pinnacle.tick_animations() {
             self.schedule_render();
         }
     }

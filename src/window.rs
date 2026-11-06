@@ -41,7 +41,7 @@ use crate::{
     api::signal::Signal,
     render::util::snapshot::WindowSnapshot,
     state::{Pinnacle, State, WithState},
-    tag::Tag,
+    workspace::Workspace,
     util::transaction::Transaction,
 };
 
@@ -139,29 +139,29 @@ impl WindowElement {
 
     /// Get the output this window is on.
     ///
-    /// This method gets the first tag the window has and returns its output.
+    /// This method gets the first workspace the window has and returns its output.
     ///
     /// RefCell Safety: This method uses a [`RefCell`] on this window and every mapped output.
     pub fn output(&self, pinnacle: &Pinnacle) -> Option<Output> {
         let _span = tracy_client::span!("WindowElement::output");
-        self.with_state(|st| st.tags.first().and_then(|tag| tag.output(pinnacle)))
+        self.with_state(|st| st.workspaces.first().and_then(|workspace| workspace.output(pinnacle)))
     }
 
-    /// Returns whether or not this window has an active tag.
+    /// Returns whether or not this window has an active workspace.
     ///
     /// RefCell Safety: This calls `with_state` on `self`.
-    pub fn is_on_active_tag(&self) -> bool {
-        let _span = tracy_client::span!("WindowElement::is_on_active_tag");
-        self.with_state(|state| state.tags.iter().any(|tag| tag.active()))
+    pub fn is_on_active_workspace(&self) -> bool {
+        let _span = tracy_client::span!("WindowElement::is_on_active_workspace");
+        self.with_state(|state| state.workspaces.iter().any(|workspace| workspace.active()))
     }
 
     pub fn is_x11_override_redirect(&self) -> bool {
         matches!(self.x11_surface(), Some(surface) if surface.is_override_redirect())
     }
 
-    pub fn set_tags_to_output(&self, output: &Output) {
+    pub fn set_workspaces_to_output(&self, output: &Output) {
         self.with_state_mut(|state| {
-            set_tags_to_output(&mut state.tags, output);
+            set_workspaces_to_output(&mut state.workspaces, output);
         });
     }
 
@@ -587,21 +587,32 @@ impl Pinnacle {
         let mut should_remove = true;
 
         if let Some(snap) = window.with_state_mut(|state| state.snapshot.take())
-            && window.with_state(|state| state.layout_mode.is_tiled())
-            && let Some(output) = maybe_output
             && let Some(loc) = self.space.element_location(window)
         {
-            // Add an unmapping window to the z_index_stack that will be displayed
-            // in place of the removed window until a transaction finishes.
+            // Add an unmapping window to the z_index_stack that is displayed in place
+            // of the removed window while it fades out.
             let unmapping = Rc::new(UnmappingWindow {
                 snapshot: snap,
                 fullscreen: window.with_state(|state| state.layout_mode.is_fullscreen()),
                 space_loc: loc,
+                close_animation: Some(crate::animation::Animation::new(
+                    crate::animation::duration::CLOSE,
+                    crate::animation::Curve::EMPHASIZED_ACCELERATE,
+                )),
             });
             let weak = Rc::downgrade(&unmapping);
-            self.layout_state
-                .pending_unmaps
-                .add_for_output(&output, vec![unmapping]);
+
+            // Tiled windows also keep their spot until the new layout is ready.
+            if window.with_state(|state| state.layout_mode.is_tiled())
+                && let Some(output) = maybe_output
+            {
+                self.layout_state
+                    .pending_unmaps
+                    .add_for_output(&output, vec![unmapping.clone()]);
+            }
+
+            tracing::debug!("close animation started");
+            self.closing_windows.push(unmapping);
             *z = ZIndexElement::Unmapping(weak);
             should_remove = false;
         }
@@ -616,7 +627,7 @@ impl Pinnacle {
             self.unmapped_windows.push(Unmapped {
                 window: window.clone(),
                 activation_token_data: None,
-                state: UnmappedState::WaitingForTags {
+                state: UnmappedState::WaitingForWorkspaces {
                     client_requests: Default::default(),
                 },
             });
@@ -658,21 +669,21 @@ impl Pinnacle {
         }
     }
 
-    /// Updates the tags of windows that have moved to another output.
+    /// Updates the workspaces of windows that have moved to another output.
     ///
     /// A window "moves" to another output when it has more of its area over the new output
     /// than the old output.
     ///
     /// Needs to be called after `Space::refresh`.
-    pub fn update_window_tags(&self) {
-        let _span = tracy_client::span!("Pinnacle::refresh_window_tags");
+    pub fn update_window_workspaces(&self) {
+        let _span = tracy_client::span!("Pinnacle::refresh_window_workspaces");
 
         for win in self.windows.iter() {
             if win.with_state(|state| !state.layout_mode.is_floating()) {
                 continue;
             }
 
-            let Some(tag_output) = win.output(self) else {
+            let Some(workspace_output) = win.output(self) else {
                 continue;
             };
 
@@ -687,8 +698,8 @@ impl Pinnacle {
                 continue;
             };
 
-            if tag_output != overlapping_output {
-                win.set_tags_to_output(&overlapping_output);
+            if workspace_output != overlapping_output {
+                win.set_workspaces_to_output(&overlapping_output);
             }
         }
     }
@@ -778,13 +789,14 @@ impl Pinnacle {
     }
 }
 
-fn set_tags_to_output(tags: &mut IndexSet<Tag>, output: &Output) {
-    *tags = output.with_state(|state| {
-        let output_tags = state.focused_tags().cloned().collect::<IndexSet<_>>();
-        if !output_tags.is_empty() {
-            output_tags
-        } else if let Some(first_tag) = state.tags.first() {
-            std::iter::once(first_tag.clone()).collect()
+fn set_workspaces_to_output(workspaces: &mut IndexSet<Workspace>, output: &Output) {
+    *workspaces = output.with_state(|state| {
+        // A window is on exactly one workspace: the one its output is showing.
+        let output_workspaces = state.focused_workspaces().take(1).cloned().collect::<IndexSet<_>>();
+        if !output_workspaces.is_empty() {
+            output_workspaces
+        } else if let Some(first_workspace) = state.workspaces.first() {
+            std::iter::once(first_workspace.clone()).collect()
         } else {
             IndexSet::new()
         }
@@ -820,6 +832,10 @@ impl State {
             );
             return;
         };
+
+        window.with_state_mut(|state| {
+            state.open_animation = crate::animation::OpenAnimation::Pending;
+        });
 
         self.pinnacle.windows.push(window.clone());
 
@@ -903,11 +919,11 @@ fn should_float(window: &WindowElement) -> bool {
 /// The state of an unmapped window.
 #[derive(Debug, Clone)]
 pub enum UnmappedState {
-    /// This window is waiting for tags to be added.
+    /// This window is waiting for workspaces to be added.
     ///
     /// This usually doesn't happen, but can occur for things like XDG autostart apps.
-    /// In that case, once tags are added this state advances to `WaitingForRules`.
-    WaitingForTags { client_requests: ClientRequests },
+    /// In that case, once workspaces are added this state advances to `WaitingForRules`.
+    WaitingForWorkspaces { client_requests: ClientRequests },
     /// This window is waiting for window rules to complete.
     WaitingForRules {
         rules: WindowRules,
@@ -968,4 +984,6 @@ pub struct UnmappingWindow {
     pub fullscreen: bool,
     /// The location of the original window in the space.
     pub space_loc: Point<i32, Logical>,
+    /// Set when the window closed, to fade the snapshot out.
+    pub close_animation: Option<crate::animation::Animation>,
 }

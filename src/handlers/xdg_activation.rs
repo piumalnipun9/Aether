@@ -87,10 +87,10 @@ impl XdgActivationHandler for State {
         if let Some(window) = self.pinnacle.window_for_surface(&surface).cloned() {
             match context {
                 ActivationContext::FocusIfPossible => {
-                    if window.is_on_active_tag() {
+                    if window.is_on_active_workspace() {
                         let Some(output) = window.output(&self.pinnacle) else {
                             debug!(
-                                "xdg-activation: focus-if-possible request on window but it had no tags"
+                                "xdg-activation: focus-if-possible request on window but it had no workspaces"
                             );
                             self.pinnacle.xdg_activation_state.remove_token(&token);
                             return;

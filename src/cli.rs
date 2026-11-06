@@ -425,15 +425,13 @@ pub fn start_lua_repl(execute: Option<String>) {
         "-l",
         "Output=pinnacle.output",
         "-l",
-        "Tag=pinnacle.tag",
+        "Workspace=pinnacle.workspace",
         "-l",
         "Window=pinnacle.window",
         "-l",
         "Layout=pinnacle.layout",
         "-l",
         "Util=pinnacle.util",
-        "-l",
-        "Snowcap=pinnacle.snowcap",
     ];
 
     let execute = execute.or_else(|| {
@@ -453,7 +451,7 @@ pub fn start_lua_repl(execute: Option<String>) {
         lua.arg("-i");
         exec.push_str(
             "print('Available globals: Pinnacle, Input, Libinput, \
-        Process, Output, Tag, Window, Layout, Util, Snowcap');",
+        Process, Output, Workspace, Window, Layout, Util, Snowcap');",
         );
     }
 

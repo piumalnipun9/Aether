@@ -18,7 +18,6 @@ indexmap = { workspace = true }
 num_enum = "0.7.5"
 passfd = { workspace = true }
 pinnacle-api-defs = { workspace = true }
-snowcap-api = { path = "../../snowcap/api/rust", optional = true }
 tokio = { workspace = true, features = ["net", "process"] }
 tokio-stream = { workspace = true }
 tonic = { workspace = true }
@@ -26,8 +25,7 @@ tower = { workspace = true }
 xkbcommon = { workspace = true }
 
 [features]
-default = ["snowcap"]
-snowcap = ["dep:snowcap-api"]
+default = []
 
 [lints.clippy]
 too_many_arguments = "allow"

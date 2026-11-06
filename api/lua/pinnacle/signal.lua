@@ -125,26 +125,26 @@ local signals = {
         ---@type fun(response: table)
         on_response = nil,
     },
-    TagActive = {
+    WorkspaceActive = {
         ---@type grpc_client.h2.Stream?
         sender = nil,
-        ---@type { callback_id: integer, callback: fun(tag: pinnacle.tag.TagHandle, active: boolean) }[]
+        ---@type { callback_id: integer, callback: fun(workspace: pinnacle.workspace.WorkspaceHandle, active: boolean) }[]
         callbacks = {},
         ---@type fun(response: table)
         on_response = nil,
     },
-    TagCreated = {
+    WorkspaceCreated = {
         ---@type grpc_client.h2.Stream?
         sender = nil,
-        ---@type { callback_id: integer, callback: fun(tag: pinnacle.tag.TagHandle) }[]
+        ---@type { callback_id: integer, callback: fun(workspace: pinnacle.workspace.WorkspaceHandle) }[]
         callbacks = {},
         ---@type fun(response: table)
         on_response = nil,
     },
-    TagRemoved = {
+    WorkspaceRemoved = {
         ---@type grpc_client.h2.Stream?
         sender = nil,
-        ---@type { callback_id: integer, callback: fun(tag: pinnacle.tag.TagHandle) }[]
+        ---@type { callback_id: integer, callback: fun(workspace: pinnacle.workspace.WorkspaceHandle) }[]
         callbacks = {},
         ---@type fun(response: table)
         on_response = nil,
@@ -354,33 +354,33 @@ signals.WindowDestroyed.on_response = function(response)
     end
 end
 
-signals.TagActive.on_response = function(response)
+signals.WorkspaceActive.on_response = function(response)
     ---@diagnostic disable-next-line: invisible
-    local tag_handle = require("pinnacle.tag").handle.new(response.tag_id)
-    local callbacks = require("pinnacle.util").deep_copy(signals.TagActive.callbacks)
+    local workspace_handle = require("pinnacle.workspace").handle.new(response.workspace_id)
+    local callbacks = require("pinnacle.util").deep_copy(signals.WorkspaceActive.callbacks)
 
     for _, callback in ipairs(callbacks) do
-        protected_callback("TagActive", callback.callback, tag_handle, response.active)
+        protected_callback("WorkspaceActive", callback.callback, workspace_handle, response.active)
     end
 end
 
-signals.TagCreated.on_response = function(response)
+signals.WorkspaceCreated.on_response = function(response)
     ---@diagnostic disable-next-line: invisible
-    local tag_handle = require("pinnacle.tag").handle.new(response.tag_id)
-    local callbacks = require("pinnacle.util").deep_copy(signals.TagCreated.callbacks)
+    local workspace_handle = require("pinnacle.workspace").handle.new(response.workspace_id)
+    local callbacks = require("pinnacle.util").deep_copy(signals.WorkspaceCreated.callbacks)
 
     for _, callback in ipairs(callbacks) do
-        protected_callback("TagCreated", callback.callback, tag_handle, response.active)
+        protected_callback("WorkspaceCreated", callback.callback, workspace_handle, response.active)
     end
 end
 
-signals.TagRemoved.on_response = function(response)
+signals.WorkspaceRemoved.on_response = function(response)
     ---@diagnostic disable-next-line: invisible
-    local tag_handle = require("pinnacle.tag").handle.new(response.tag_id)
-    local callbacks = require("pinnacle.util").deep_copy(signals.TagRemoved.callbacks)
+    local workspace_handle = require("pinnacle.workspace").handle.new(response.workspace_id)
+    local callbacks = require("pinnacle.util").deep_copy(signals.WorkspaceRemoved.callbacks)
 
     for _, callback in ipairs(callbacks) do
-        protected_callback("TagRemoved", callback.callback, tag_handle, response.active)
+        protected_callback("WorkspaceRemoved", callback.callback, workspace_handle, response.active)
     end
 end
 

@@ -13,7 +13,7 @@ function protobuf.build_protos()
     local version = "v1"
     -- FIXME: walk the directory instead of hardcoding
     local proto_file_paths = {
-        "pinnacle/tag/" .. version .. "/tag.proto",
+        "pinnacle/workspace/" .. version .. "/workspace.proto",
         "pinnacle/input/" .. version .. "/input.proto",
         "pinnacle/" .. version .. "/pinnacle.proto",
         "pinnacle/output/" .. version .. "/output.proto",

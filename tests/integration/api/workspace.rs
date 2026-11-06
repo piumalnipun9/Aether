@@ -5,8 +5,8 @@ use std::{
 
 use indexmap::IndexSet;
 use mlua::{UserData, UserDataMethods};
-use pinnacle::{state::WithState, tag::Tag};
-use pinnacle_api::{layout::LayoutNode, output::OutputHandle, signal::TagSignal, tag::TagHandle};
+use pinnacle::{state::WithState, workspace::Workspace};
+use pinnacle_api::{layout::LayoutNode, output::OutputHandle, signal::WorkspaceSignal, workspace::WorkspaceHandle};
 use proptest::prelude::*;
 use smithay::{output::Output, utils::Rectangle};
 
@@ -15,25 +15,25 @@ use crate::{
     spawn_lua_blocking,
 };
 
-fn set_up() -> (Fixture, Output, Output, Vec<Tag>, Vec<Tag>) {
+fn set_up() -> (Fixture, Output, Output, Vec<Workspace>, Vec<Workspace>) {
     let mut fixture = Fixture::new();
 
     let output1 = fixture.add_output(Rectangle::new((0, 0).into(), (1920, 1080).into()));
     output1.with_state_mut(|state| {
-        let tag = Tag::new("1".to_string());
-        tag.set_active(true);
-        let tag2 = Tag::new("2".to_string());
-        let tag3 = Tag::new("3".to_string());
-        state.add_tags([tag, tag2, tag3]);
+        let workspace = Workspace::new("1".to_string());
+        workspace.set_active(true);
+        let workspace2 = Workspace::new("2".to_string());
+        let workspace3 = Workspace::new("3".to_string());
+        state.add_workspaces([workspace, workspace2, workspace3]);
     });
 
     let output2 = fixture.add_output(Rectangle::new((1920, 0).into(), (1920, 1080).into()));
     output2.with_state_mut(|state| {
-        let tag = Tag::new("4".to_string());
-        tag.set_active(true);
-        let tag2 = Tag::new("5".to_string());
-        let tag3 = Tag::new("6".to_string());
-        state.add_tags([tag, tag2, tag3]);
+        let workspace = Workspace::new("4".to_string());
+        workspace.set_active(true);
+        let workspace2 = Workspace::new("5".to_string());
+        let workspace3 = Workspace::new("6".to_string());
+        state.add_workspaces([workspace, workspace2, workspace3]);
     });
 
     fixture.pinnacle().focus_output(&output1);
@@ -43,135 +43,135 @@ fn set_up() -> (Fixture, Output, Output, Vec<Tag>, Vec<Tag>) {
         .block_on(pinnacle_api::connect())
         .unwrap();
 
-    let tags1 = output1.with_state(|state| state.tags.clone());
-    let tags2 = output2.with_state(|state| state.tags.clone());
+    let workspaces1 = output1.with_state(|state| state.workspaces.clone());
+    let workspaces2 = output2.with_state(|state| state.workspaces.clone());
 
     (
         fixture,
         output1,
         output2,
-        tags1.into_iter().collect(),
-        tags2.into_iter().collect(),
+        workspaces1.into_iter().collect(),
+        workspaces2.into_iter().collect(),
     )
 }
 
 #[test_log::test]
-fn tag_get_all() {
+fn workspace_get_all() {
     let (mut fixture, ..) = set_up();
 
     fixture.spawn_blocking(|| {
-        assert_eq!(pinnacle_api::tag::get_all().count(), 6);
+        assert_eq!(pinnacle_api::workspace::get_all().count(), 6);
     });
 
     spawn_lua_blocking! {
         fixture,
-        assert(#Tag.get_all() == 6)
+        assert(#Workspace.get_all() == 6)
     }
 }
 
 #[test_log::test]
-fn tag_get() {
+fn workspace_get() {
     let (mut fixture, _, output2, ..) = set_up();
 
     fixture.spawn_blocking({
         let output2_name = output2.name();
         move || {
-            let tag = pinnacle_api::tag::get("1");
-            assert!(tag.is_some());
+            let workspace = pinnacle_api::workspace::get("1");
+            assert!(workspace.is_some());
 
-            let tag = pinnacle_api::tag::get("4");
-            assert!(tag.is_none());
+            let workspace = pinnacle_api::workspace::get("4");
+            assert!(workspace.is_none());
 
-            let tag = pinnacle_api::tag::get_on_output(
+            let workspace = pinnacle_api::workspace::get_on_output(
                 "4",
                 &pinnacle_api::output::get_by_name(&output2_name).unwrap(),
             );
-            assert!(tag.is_some());
+            assert!(workspace.is_some());
         }
     });
 
     let output2_name = output2.name();
     spawn_lua_blocking! {
         fixture,
-        local tag = Tag.get("1")
-        assert(tag)
+        local workspace = Workspace.get("1")
+        assert(workspace)
 
-        local tag = Tag.get("4")
-        assert(not tag)
+        local workspace = Workspace.get("4")
+        assert(not workspace)
 
-        local tag = Tag.get("4", Output.get_by_name($output2_name))
-        assert(tag)
+        local workspace = Workspace.get("4", Output.get_by_name($output2_name))
+        assert(workspace)
     }
 }
 
 #[test_log::test]
-fn tag_add() {
+fn workspace_add() {
     for_each_api(|lang| {
         let (mut fixture, output, ..) = set_up();
 
         match lang {
             Lang::Rust => fixture.spawn_blocking(move || {
-                let tags = pinnacle_api::tag::add(
+                let workspaces = pinnacle_api::workspace::add(
                     &pinnacle_api::output::get_focused().unwrap(),
                     ["nubby's", "number", "factory"],
                 );
-                assert_eq!(tags.count(), 3);
+                assert_eq!(workspaces.count(), 3);
             }),
             Lang::Lua => spawn_lua_blocking! {
                 fixture,
-                local tags = Tag.add(Output.get_focused(), "nubby's", "number", "factory")
-                assert(#tags == 3)
+                local workspaces = Workspace.add(Output.get_focused(), "nubby's", "number", "factory")
+                assert(#workspaces == 3)
             },
         }
 
-        let tag_count = output.with_state(|state| state.tags.len());
-        assert_eq!(tag_count, 6);
+        let workspace_count = output.with_state(|state| state.workspaces.len());
+        assert_eq!(workspace_count, 6);
     });
 }
 
 #[test_log::test]
-fn tag_remove() {
+fn workspace_remove() {
     for_each_api(|lang| {
         let (mut fixture, output, ..) = set_up();
 
         match lang {
             Lang::Rust => fixture.spawn_blocking(move || {
-                let mut tags = pinnacle_api::output::get_focused().unwrap().tags();
+                let mut workspaces = pinnacle_api::output::get_focused().unwrap().workspaces();
 
-                pinnacle_api::tag::remove([tags.next().unwrap()]);
+                pinnacle_api::workspace::remove([workspaces.next().unwrap()]);
             }),
             Lang::Lua => spawn_lua_blocking! {
                 fixture,
-                local tags = Output.get_focused():tags()
-                Tag.remove({ tags[1] })
+                local workspaces = Output.get_focused():workspaces()
+                Workspace.remove({ workspaces[1] })
             },
         }
 
-        let tag_count = output.with_state(|state| state.tags.len());
-        assert_eq!(tag_count, 2);
+        let workspace_count = output.with_state(|state| state.workspaces.len());
+        assert_eq!(workspace_count, 2);
     });
 }
 
-/// Arguments for testing `tag.move_to_output`.
+/// Arguments for testing `workspace.move_to_output`.
 #[derive(Debug, Clone)]
-struct TagMoveToOutputArgs {
-    /// A 2d map of tags that should be active.
+struct WorkspaceMoveToOutputArgs {
+    /// A 2d map of workspaces that should be active.
     ///
     /// Each nested vec maps to one output.
-    /// For each output, the length of the vec is the amount of tags
-    /// the output will have. `true` will set that tag active.
-    tag_actives: Vec<Vec<bool>>,
+    /// For each output, the length of the vec is the amount of workspaces
+    /// the output will have. `true` will set that workspace active.
+    workspace_actives: Vec<Vec<bool>>,
     /// The index of the output to focus.
     output_to_focus: usize,
-    /// A 2d map of tags that will be moved to the target output.
+    /// A 2d map of workspaces that will be moved to the target output.
     ///
-    /// Similar to `tag_actives`. `true` means "move this tag".
-    tags_to_move: Vec<Vec<bool>>,
-    /// The index of the output that tags will be moved to.
+    /// Similar to `workspace_actives`. `true` means "move this workspace".
+    workspaces_to_move: Vec<Vec<bool>>,
+    /// The index of the output that workspaces will be moved to.
     output_to_move_to: usize,
 }
 
-fn tag_move_to_output_args() -> impl Strategy<Value = TagMoveToOutputArgs> {
+fn workspace_move_to_output_args() -> impl Strategy<Value = WorkspaceMoveToOutputArgs> {
     (2usize..=10)
         .prop_flat_map(|output_count| {
             (
@@ -180,25 +180,25 @@ fn tag_move_to_output_args() -> impl Strategy<Value = TagMoveToOutputArgs> {
                 vec![2usize..=10; output_count],
             )
         })
-        .prop_flat_map(|(output_to_focus, output_to_move_to, tag_counts)| {
+        .prop_flat_map(|(output_to_focus, output_to_move_to, workspace_counts)| {
             (
                 Just(output_to_focus),
                 Just(output_to_move_to),
-                tag_counts
+                workspace_counts
                     .iter()
-                    .map(|&tag_count| vec![proptest::bool::ANY; tag_count])
+                    .map(|&workspace_count| vec![proptest::bool::ANY; workspace_count])
                     .collect::<Vec<_>>(),
-                tag_counts
+                workspace_counts
                     .iter()
-                    .map(|&tag_count| vec![proptest::bool::weighted(0.1); tag_count])
+                    .map(|&workspace_count| vec![proptest::bool::weighted(0.1); workspace_count])
                     .collect::<Vec<_>>(),
             )
         })
         .prop_map(
-            |(output_to_focus, output_to_move_to, tag_actives, tags_to_move)| TagMoveToOutputArgs {
-                tag_actives,
+            |(output_to_focus, output_to_move_to, workspace_actives, workspaces_to_move)| WorkspaceMoveToOutputArgs {
+                workspace_actives,
                 output_to_focus,
-                tags_to_move,
+                workspaces_to_move,
                 output_to_move_to,
             },
         )
@@ -210,8 +210,8 @@ proptest! {
         ..ProptestConfig::default()
     })]
     #[test_log::test]
-    fn tag_move_to_output(
-        args in tag_move_to_output_args()
+    fn workspace_move_to_output(
+        args in workspace_move_to_output_args()
     ) {
         for_each_api(|lang| {
             let mut fixture = Fixture::new();
@@ -221,43 +221,43 @@ proptest! {
                 .block_on(pinnacle_api::connect())
                 .unwrap();
 
-            let TagMoveToOutputArgs {
-                tag_actives,
+            let WorkspaceMoveToOutputArgs {
+                workspace_actives,
                 output_to_focus,
-                tags_to_move,
+                workspaces_to_move,
                 output_to_move_to
             } = args.clone();
 
             let mut outputs = Vec::new();
-            let mut tags = Vec::new();
-            let mut tags_to_mv = Vec::new();
+            let mut workspaces = Vec::new();
+            let mut workspaces_to_mv = Vec::new();
 
-            for (i, (tag_mask, tag_move)) in tag_actives.clone().into_iter().zip(tags_to_move.clone()).enumerate() {
+            for (i, (workspace_mask, workspace_move)) in workspace_actives.clone().into_iter().zip(workspaces_to_move.clone()).enumerate() {
                 let output = fixture.add_output(Rectangle::new((1920 * i as i32, 0).into(), (1920, 1080).into()));
                 output.with_state_mut(|state| {
-                    let tgs = tag_mask
+                    let tgs = workspace_mask
                         .into_iter()
-                        .zip(tag_move)
+                        .zip(workspace_move)
                         .map(|(active, r#move)| {
-                            let tag = Tag::new("mama mia".to_string());
-                            tag.set_active(active);
+                            let workspace = Workspace::new("mama mia".to_string());
+                            workspace.set_active(active);
 
                             if r#move {
-                                tags_to_mv.push(tag.clone());
+                                workspaces_to_mv.push(workspace.clone());
                             }
 
-                            tag
+                            workspace
                         })
                         .collect::<Vec<_>>();
-                    state.add_tags(tgs.clone());
-                    tags.push(tgs);
+                    state.add_workspaces(tgs.clone());
+                    workspaces.push(tgs);
                 });
                 outputs.push(output);
             }
 
             fixture.pinnacle().focus_output(&outputs[output_to_focus]);
 
-            if outputs[output_to_focus].with_state(|state| state.focused_tags().next().is_none()) {
+            if outputs[output_to_focus].with_state(|state| state.focused_workspaces().next().is_none()) {
                 // Just ignore this case
                 return;
             }
@@ -265,47 +265,47 @@ proptest! {
             let id = fixture.add_client();
             fixture.spawn_floating_window_with(id, (500, 500), |_| ());
 
-            let window_has_moved_tags = !outputs[output_to_focus]
+            let window_has_moved_workspaces = !outputs[output_to_focus]
                 .with_state(|state| {
-                    state.focused_tags().cloned().collect::<IndexSet<_>>()
+                    state.focused_workspaces().cloned().collect::<IndexSet<_>>()
                 })
-                .is_disjoint(&tags_to_mv.iter().cloned().collect::<IndexSet<_>>());
+                .is_disjoint(&workspaces_to_mv.iter().cloned().collect::<IndexSet<_>>());
 
             let target_output_name = outputs[output_to_move_to].name();
             let focused_output_name = outputs[output_to_focus].name();
-            let tag_ids_to_move = tags_to_mv
+            let workspace_ids_to_move = workspaces_to_mv
                 .into_iter()
-                .map(|tag| tag.id().to_inner())
+                .map(|workspace| workspace.id().to_inner())
                 .collect::<Vec<_>>();
 
             match lang {
                 Lang::Rust => fixture.spawn_blocking(move || {
                     let target_output = OutputHandle::from_name(target_output_name);
                     let focused_output = OutputHandle::from_name(focused_output_name);
-                    let target_tags = tag_ids_to_move
+                    let target_workspaces = workspace_ids_to_move
                         .into_iter()
-                        .map(TagHandle::from_id)
+                        .map(WorkspaceHandle::from_id)
                         .collect::<Vec<_>>();
 
-                    let ret = pinnacle_api::tag::move_to_output(&target_output, target_tags.clone());
+                    let ret = pinnacle_api::workspace::move_to_output(&target_output, target_workspaces.clone());
 
                     match ret {
                         Ok(()) => {
                             let win = pinnacle_api::window::get_all().next().unwrap();
 
-                            if window_has_moved_tags {
+                            if window_has_moved_workspaces {
                                 assert_eq!(win.output().as_ref(), Some(&target_output), "win not on target output");
                             } else {
                                 assert_eq!(win.output().as_ref(), Some(&focused_output), "win not on focused output, moved");
                             }
 
-                            for tag in target_tags {
-                                assert_eq!(tag.output(), target_output, "tag not on target output");
+                            for workspace in target_workspaces {
+                                assert_eq!(workspace.output(), target_output, "workspace not on target output");
                             }
                         }
                         Err(err) => match err {
-                            pinnacle_api::tag::MoveToOutputError::OutputDoesNotExist => unreachable!(),
-                            pinnacle_api::tag::MoveToOutputError::SameWindowOnTwoOutputs(window_handles) => {
+                            pinnacle_api::workspace::MoveToOutputError::OutputDoesNotExist => unreachable!(),
+                            pinnacle_api::workspace::MoveToOutputError::SameWindowOnTwoOutputs(window_handles) => {
                                 assert_eq!(window_handles.len(), 1, "win not on two ops");
                                 let win = &window_handles[0];
                                 assert_eq!(win.output().as_ref(), Some(&focused_output), "win not on focused output, not moved");
@@ -318,22 +318,22 @@ proptest! {
 
                     local target_output = Output.handle.new($target_output_name)
                     local focused_output = Output.handle.new($focused_output_name)
-                    local tags_to_move = Tag.handle.new_from_table($tag_ids_to_move)
+                    local workspaces_to_move = Workspace.handle.new_from_table($workspace_ids_to_move)
 
-                    local ok, err = Tag.move_to_output(target_output, tags_to_move)
+                    local ok, err = Workspace.move_to_output(target_output, workspaces_to_move)
 
                     if ok then
                         assert(not err, "err was non-nil")
                         local win = Window.get_all()[1]
                         local win_output = win:output().name
-                        if $window_has_moved_tags then
+                        if $window_has_moved_workspaces then
                             assert(win_output == target_output.name, "win not on target output")
                         else
                             assert(win_output == focused_output.name, "win not on focused output, moved")
                         end
 
-                        for _, tag in ipairs(tags_to_move) do
-                            assert(tag:output().name == target_output.name, "tag not on target_output")
+                        for _, workspace in ipairs(workspaces_to_move) do
+                            assert(workspace:output().name == target_output.name, "workspace not on target_output")
                         end
                     else
                         assert(not err.output_does_not_exist, "output doesn't exist")
@@ -348,166 +348,166 @@ proptest! {
 }
 
 #[test_log::test]
-fn tag_handle_remove() {
+fn workspace_handle_remove() {
     for_each_api(|lang| {
         let (mut fixture, output, ..) = set_up();
 
         match lang {
             Lang::Rust => fixture.spawn_blocking(move || {
-                let mut tags = pinnacle_api::output::get_focused().unwrap().tags();
+                let mut workspaces = pinnacle_api::output::get_focused().unwrap().workspaces();
 
-                tags.next().unwrap().remove();
+                workspaces.next().unwrap().remove();
             }),
             Lang::Lua => spawn_lua_blocking! {
                 fixture,
-                local tags = Output.get_focused():tags()
-                tags[1]:remove()
+                local workspaces = Output.get_focused():workspaces()
+                workspaces[1]:remove()
             },
         }
 
-        let tag_count = output.with_state(|state| state.tags.len());
-        assert_eq!(tag_count, 2);
+        let workspace_count = output.with_state(|state| state.workspaces.len());
+        assert_eq!(workspace_count, 2);
     });
 }
 
 #[test_log::test]
-fn tag_handle_switch_to() {
+fn workspace_handle_switch_to() {
     for_each_api(|lang| {
         let (mut fixture, output, ..) = set_up();
 
         output.with_state(|state| {
-            state.tags[0].set_active(true);
-            state.tags[1].set_active(true);
-            state.tags[2].set_active(true);
+            state.workspaces[0].set_active(true);
+            state.workspaces[1].set_active(true);
+            state.workspaces[2].set_active(true);
         });
 
         match lang {
             Lang::Rust => fixture.spawn_blocking(move || {
-                pinnacle_api::tag::get("2").unwrap().switch_to();
+                pinnacle_api::workspace::get("2").unwrap().switch_to();
             }),
             Lang::Lua => spawn_lua_blocking! {
                 fixture,
-                Tag.get("2"):switch_to()
+                Workspace.get("2"):switch_to()
             },
         }
 
         output.with_state(|state| {
-            assert!(!state.tags[0].active());
-            assert!(state.tags[1].active());
-            assert!(!state.tags[2].active());
+            assert!(!state.workspaces[0].active());
+            assert!(state.workspaces[1].active());
+            assert!(!state.workspaces[2].active());
         });
     });
 }
 
 #[test_log::test]
-fn tag_handle_set_active() {
-    for_each_api(|lang| {
-        let (mut fixture, output, ..) = set_up();
-
-        match lang {
-            Lang::Rust => fixture.spawn_blocking(move || {
-                pinnacle_api::tag::get("1").unwrap().set_active(false);
-                pinnacle_api::tag::get("2").unwrap().set_active(true);
-                pinnacle_api::tag::get("3").unwrap().set_active(true);
-            }),
-            Lang::Lua => spawn_lua_blocking! {
-                fixture,
-                Tag.get("1"):set_active(false)
-                Tag.get("2"):set_active(true)
-                Tag.get("3"):set_active(true)
-            },
-        }
-
-        output.with_state(|state| {
-            assert!(!state.tags[0].active());
-            assert!(state.tags[1].active());
-            assert!(state.tags[2].active());
-        });
-    });
-}
-
-#[test_log::test]
-fn tag_handle_toggle_active() {
+fn workspace_handle_set_active() {
     for_each_api(|lang| {
         let (mut fixture, output, ..) = set_up();
 
         match lang {
             Lang::Rust => fixture.spawn_blocking(move || {
-                pinnacle_api::tag::get("1").unwrap().toggle_active();
-                pinnacle_api::tag::get("2").unwrap().toggle_active();
-                pinnacle_api::tag::get("3").unwrap().toggle_active();
-                pinnacle_api::tag::get("3").unwrap().toggle_active();
+                pinnacle_api::workspace::get("1").unwrap().set_active(false);
+                pinnacle_api::workspace::get("2").unwrap().set_active(true);
+                pinnacle_api::workspace::get("3").unwrap().set_active(true);
             }),
             Lang::Lua => spawn_lua_blocking! {
                 fixture,
-                Tag.get("1"):toggle_active()
-                Tag.get("2"):toggle_active()
-                Tag.get("3"):toggle_active()
-                Tag.get("3"):toggle_active()
+                Workspace.get("1"):set_active(false)
+                Workspace.get("2"):set_active(true)
+                Workspace.get("3"):set_active(true)
             },
         }
 
         output.with_state(|state| {
-            assert!(!state.tags[0].active());
-            assert!(state.tags[1].active());
-            assert!(!state.tags[2].active());
+            assert!(!state.workspaces[0].active());
+            assert!(state.workspaces[1].active());
+            assert!(state.workspaces[2].active());
         });
     });
 }
 
 #[test_log::test]
-fn tag_handle_active() {
+fn workspace_handle_toggle_active() {
+    for_each_api(|lang| {
+        let (mut fixture, output, ..) = set_up();
+
+        match lang {
+            Lang::Rust => fixture.spawn_blocking(move || {
+                pinnacle_api::workspace::get("1").unwrap().toggle_active();
+                pinnacle_api::workspace::get("2").unwrap().toggle_active();
+                pinnacle_api::workspace::get("3").unwrap().toggle_active();
+                pinnacle_api::workspace::get("3").unwrap().toggle_active();
+            }),
+            Lang::Lua => spawn_lua_blocking! {
+                fixture,
+                Workspace.get("1"):toggle_active()
+                Workspace.get("2"):toggle_active()
+                Workspace.get("3"):toggle_active()
+                Workspace.get("3"):toggle_active()
+            },
+        }
+
+        output.with_state(|state| {
+            assert!(!state.workspaces[0].active());
+            assert!(state.workspaces[1].active());
+            assert!(!state.workspaces[2].active());
+        });
+    });
+}
+
+#[test_log::test]
+fn workspace_handle_active() {
     let (mut fixture, ..) = set_up();
 
     fixture.spawn_blocking(move || {
-        assert!(pinnacle_api::tag::get("1").unwrap().active());
-        assert!(!pinnacle_api::tag::get("2").unwrap().active());
-        assert!(!pinnacle_api::tag::get("3").unwrap().active());
+        assert!(pinnacle_api::workspace::get("1").unwrap().active());
+        assert!(!pinnacle_api::workspace::get("2").unwrap().active());
+        assert!(!pinnacle_api::workspace::get("3").unwrap().active());
     });
 
     spawn_lua_blocking! {
         fixture,
-        assert(Tag.get("1"):active())
-        assert(not Tag.get("2"):active())
-        assert(not Tag.get("3"):active())
+        assert(Workspace.get("1"):active())
+        assert(not Workspace.get("2"):active())
+        assert(not Workspace.get("3"):active())
     }
 }
 
 #[test_log::test]
-fn tag_handle_name() {
+fn workspace_handle_name() {
     let (mut fixture, ..) = set_up();
 
     fixture.spawn_blocking(move || {
-        assert_eq!(pinnacle_api::tag::get("1").unwrap().name(), "1");
-        assert_eq!(pinnacle_api::tag::get("2").unwrap().name(), "2");
-        assert_eq!(pinnacle_api::tag::get("3").unwrap().name(), "3");
+        assert_eq!(pinnacle_api::workspace::get("1").unwrap().name(), "1");
+        assert_eq!(pinnacle_api::workspace::get("2").unwrap().name(), "2");
+        assert_eq!(pinnacle_api::workspace::get("3").unwrap().name(), "3");
     });
 
     spawn_lua_blocking! {
         fixture,
-        assert(Tag.get("1"):name() == "1")
-        assert(Tag.get("2"):name() == "2")
-        assert(Tag.get("3"):name() == "3")
+        assert(Workspace.get("1"):name() == "1")
+        assert(Workspace.get("2"):name() == "2")
+        assert(Workspace.get("3"):name() == "3")
     }
 }
 
 #[test_log::test]
-fn tag_handle_output() {
+fn workspace_handle_output() {
     let (mut fixture, output1, output2, ..) = set_up();
 
     fixture.spawn_blocking({
         let output1_name = output1.name();
         let output2_name = output2.name();
         move || {
-            let tag = pinnacle_api::tag::get("1").unwrap();
-            assert_eq!(tag.output().name(), output1_name);
+            let workspace = pinnacle_api::workspace::get("1").unwrap();
+            assert_eq!(workspace.output().name(), output1_name);
 
-            let tag = pinnacle_api::tag::get_on_output(
+            let workspace = pinnacle_api::workspace::get_on_output(
                 "4",
                 &pinnacle_api::output::get_by_name(&output2_name).unwrap(),
             )
             .unwrap();
-            assert_eq!(tag.output().name(), output2_name);
+            assert_eq!(workspace.output().name(), output2_name);
         }
     });
 
@@ -515,16 +515,16 @@ fn tag_handle_output() {
     let output2_name = output2.name();
     spawn_lua_blocking! {
         fixture,
-        local tag = Tag.get("1")
-        assert(tag:output().name == $output1_name)
+        local workspace = Workspace.get("1")
+        assert(workspace:output().name == $output1_name)
 
-        local tag = Tag.get("4", Output.get_by_name($output2_name))
-        assert(tag:output().name == $output2_name)
+        local workspace = Workspace.get("4", Output.get_by_name($output2_name))
+        assert(workspace:output().name == $output2_name)
     }
 }
 
 #[test_log::test]
-fn tag_handle_windows() {
+fn workspace_handle_windows() {
     let (mut fixture, ..) = set_up();
 
     fixture.spawn_blocking(|| {
@@ -538,60 +538,60 @@ fn tag_handle_windows() {
     fixture.spawn_windows(1, id);
 
     fixture.spawn_blocking(move || {
-        let tag = pinnacle_api::tag::get("1").unwrap();
-        assert_eq!(tag.windows().count(), 1);
+        let workspace = pinnacle_api::workspace::get("1").unwrap();
+        assert_eq!(workspace.windows().count(), 1);
 
-        let tag = pinnacle_api::tag::get("2").unwrap();
-        assert_eq!(tag.windows().count(), 0);
+        let workspace = pinnacle_api::workspace::get("2").unwrap();
+        assert_eq!(workspace.windows().count(), 0);
     });
 
     spawn_lua_blocking! {
         fixture,
-        local tag = Tag.get("1")
-        assert(#tag:windows() == 1)
+        local workspace = Workspace.get("1")
+        assert(#workspace:windows() == 1)
 
-        local tag = Tag.get("2")
-        assert(#tag:windows() == 0)
+        local workspace = Workspace.get("2")
+        assert(#workspace:windows() == 0)
     }
 }
 
 #[test_log::test]
-fn tag_get_all_does_not_return_tags_cleared_after_config_reload() {
+fn workspace_get_all_does_not_return_workspaces_cleared_after_config_reload() {
     for_each_api(|lang| {
         let (mut fixture, ..) = set_up();
 
         match lang {
             Lang::Rust => fixture.spawn_blocking(move || {
-                assert_eq!(pinnacle_api::tag::get_all().count(), 6);
+                assert_eq!(pinnacle_api::workspace::get_all().count(), 6);
                 pinnacle_api::pinnacle::reload_config();
-                assert_eq!(pinnacle_api::tag::get_all().count(), 0);
+                assert_eq!(pinnacle_api::workspace::get_all().count(), 0);
             }),
             Lang::Lua => spawn_lua_blocking! {
                 fixture,
-                assert(#Tag.get_all() == 6)
+                assert(#Workspace.get_all() == 6)
                 Pinnacle.reload_config()
-                assert(#Tag.get_all() == 0)
+                assert(#Workspace.get_all() == 0)
             },
         }
     });
 }
 
 #[test_log::test]
-fn tag_get_does_not_return_tags_cleared_after_config_reload() {
+fn workspace_get_does_not_return_workspaces_cleared_after_config_reload() {
     for_each_api(|lang| {
         let (mut fixture, ..) = set_up();
 
         match lang {
             Lang::Rust => fixture.spawn_blocking(move || {
-                assert!(pinnacle_api::tag::get("1").is_some());
+                assert!(pinnacle_api::workspace::get("1").is_some());
                 pinnacle_api::pinnacle::reload_config();
-                assert!(pinnacle_api::tag::get("1").is_none());
+                assert!(pinnacle_api::workspace::get("1").is_none());
             }),
             Lang::Lua => spawn_lua_blocking! {
                 fixture,
-                assert(Tag.get("1"))
+                assert(Workspace.get("1"))
                 Pinnacle.reload_config()
-                assert(not Tag.get("1"))
+                assert(not Workspace.get("1"))
             },
         }
     });
@@ -600,14 +600,14 @@ fn tag_get_does_not_return_tags_cleared_after_config_reload() {
 // TODO: Implement a less shady/more generic way to test signals,
 // ideally something allowing to describe an expected sequence/list of signals
 #[derive(Clone)]
-struct TagSignalTester {
-    active: Arc<Mutex<HashMap<TagHandle, bool>>>,
-    created: Arc<Mutex<HashSet<TagHandle>>>,
-    removed: Arc<Mutex<HashSet<TagHandle>>>,
+struct WorkspaceSignalTester {
+    active: Arc<Mutex<HashMap<WorkspaceHandle, bool>>>,
+    created: Arc<Mutex<HashSet<WorkspaceHandle>>>,
+    removed: Arc<Mutex<HashSet<WorkspaceHandle>>>,
     done: Arc<dyn Fn(&Self) -> bool + Send + Sync + 'static>,
 }
 
-impl TagSignalTester {
+impl WorkspaceSignalTester {
     fn new<F>(done: F) -> Self
     where
         F: Fn(&Self) -> bool + Send + Sync + 'static,
@@ -620,30 +620,30 @@ impl TagSignalTester {
         }
     }
 
-    fn log_active(&self, tag: TagHandle, active: bool) {
+    fn log_active(&self, workspace: WorkspaceHandle, active: bool) {
         let mut storage = self.active.lock().unwrap();
-        storage.insert(tag, active);
+        storage.insert(workspace, active);
     }
 
-    fn active(&self) -> &Arc<Mutex<HashMap<TagHandle, bool>>> {
+    fn active(&self) -> &Arc<Mutex<HashMap<WorkspaceHandle, bool>>> {
         &self.active
     }
 
-    fn log_created(&self, tag: TagHandle) {
+    fn log_created(&self, workspace: WorkspaceHandle) {
         let mut storage = self.created.lock().unwrap();
-        storage.insert(tag);
+        storage.insert(workspace);
     }
 
-    fn created(&self) -> &Arc<Mutex<HashSet<TagHandle>>> {
+    fn created(&self) -> &Arc<Mutex<HashSet<WorkspaceHandle>>> {
         &self.created
     }
 
-    fn log_removed(&self, tag: TagHandle) {
+    fn log_removed(&self, workspace: WorkspaceHandle) {
         let mut storage = self.removed.lock().unwrap();
-        storage.insert(tag);
+        storage.insert(workspace);
     }
 
-    fn removed(&self) -> &Arc<Mutex<HashSet<TagHandle>>> {
+    fn removed(&self) -> &Arc<Mutex<HashSet<WorkspaceHandle>>> {
         &self.removed
     }
 
@@ -652,10 +652,10 @@ impl TagSignalTester {
     }
 }
 
-impl UserData for TagSignalTester {
+impl UserData for WorkspaceSignalTester {
     fn add_methods<M: UserDataMethods<Self>>(methods: &mut M) {
         methods.add_method("log_active", |_, this, (id, active): (u32, bool)| {
-            let handle = TagHandle::from_id(id);
+            let handle = WorkspaceHandle::from_id(id);
 
             this.log_active(handle, active);
 
@@ -663,7 +663,7 @@ impl UserData for TagSignalTester {
         });
 
         methods.add_method("log_created", |_, this, id: u32| {
-            let handle = TagHandle::from_id(id);
+            let handle = WorkspaceHandle::from_id(id);
 
             this.log_created(handle);
 
@@ -671,7 +671,7 @@ impl UserData for TagSignalTester {
         });
 
         methods.add_method("log_removed", |_, this, id: u32| {
-            let handle = TagHandle::from_id(id);
+            let handle = WorkspaceHandle::from_id(id);
 
             this.log_removed(handle);
 
@@ -683,14 +683,14 @@ impl UserData for TagSignalTester {
 }
 
 #[test_log::test]
-fn tag_signal_active() {
+fn workspace_signal_active() {
     for_each_api(|lang| {
-        let (mut fixture, _o1, _o2, tags, ..) = set_up();
+        let (mut fixture, _o1, _o2, workspaces, ..) = set_up();
 
-        let tag_name = tags[1].name();
-        let handle = TagHandle::from_id(tags[1].id().to_inner());
+        let workspace_name = workspaces[1].name();
+        let handle = WorkspaceHandle::from_id(workspaces[1].id().to_inner());
 
-        let tester = TagSignalTester::new(move |t| {
+        let tester = WorkspaceSignalTester::new(move |t| {
             let Ok(active) = t.active().try_lock() else {
                 return false;
             };
@@ -698,32 +698,32 @@ fn tag_signal_active() {
             active.contains_key(&handle)
         });
 
-        let tag1_hndl = TagHandle::from_id(tags[0].id().to_inner());
-        let tag2_hndl = TagHandle::from_id(tags[1].id().to_inner());
+        let workspace1_hndl = WorkspaceHandle::from_id(workspaces[0].id().to_inner());
+        let workspace2_hndl = WorkspaceHandle::from_id(workspaces[1].id().to_inner());
         let tester_cpy = tester.clone();
         let signal_handle = Arc::new(OnceLock::new());
         let signal_handle_clone = signal_handle.clone();
 
         match lang {
             Lang::Rust => fixture.spawn_blocking(move || {
-                let handle = pinnacle_api::tag::connect_signal(
-                    pinnacle_api::signal::TagSignal::Active(Box::new(move |tag, active| {
-                        tester.log_active(tag.clone(), active);
+                let handle = pinnacle_api::workspace::connect_signal(
+                    pinnacle_api::signal::WorkspaceSignal::Active(Box::new(move |workspace, active| {
+                        tester.log_active(workspace.clone(), active);
                     })),
                 );
                 signal_handle_clone.set(handle).unwrap();
 
-                pinnacle_api::tag::get(tag_name).unwrap().switch_to();
+                pinnacle_api::workspace::get(workspace_name).unwrap().switch_to();
             }),
             Lang::Lua => spawn_lua_blocking! {
                 fixture,
-                Tag.connect_signal({
-                    active = function(tag, active)
-                        $tester:log_active(tag.id, active)
+                Workspace.connect_signal({
+                    active = function(workspace, active)
+                        $tester:log_active(workspace.id, active)
                     end
                 })
 
-                Tag.get($tag_name):switch_to()
+                Workspace.get($workspace_name):switch_to()
 
                 local client = require("pinnacle.grpc.client").client
                 while not $tester:done() do
@@ -735,8 +735,8 @@ fn tag_signal_active() {
         fixture.dispatch_until(|_| tester_cpy.done());
 
         let store = tester_cpy.active().lock().unwrap();
-        assert_eq!(store.get(&tag1_hndl), Some(&false));
-        assert_eq!(store.get(&tag2_hndl), Some(&true));
+        assert_eq!(store.get(&workspace1_hndl), Some(&false));
+        assert_eq!(store.get(&workspace2_hndl), Some(&true));
 
         if lang == Lang::Rust {
             // Think the Rust client waits for signals forever, was only able
@@ -747,12 +747,12 @@ fn tag_signal_active() {
 }
 
 #[test_log::test]
-fn tag_signal_created() {
+fn workspace_signal_created() {
     for_each_api(|lang| {
         let (mut fixture, output, ..) = set_up();
 
-        let tag_name = "test_tag";
-        let tester = TagSignalTester::new(move |t| {
+        let workspace_name = "test_workspace";
+        let tester = WorkspaceSignalTester::new(move |t| {
             let Ok(created) = t.created().try_lock() else {
                 return false;
             };
@@ -767,24 +767,24 @@ fn tag_signal_created() {
         match lang {
             Lang::Rust => fixture.spawn_blocking(move || {
                 let handle =
-                    pinnacle_api::tag::connect_signal(TagSignal::Created(Box::new(move |tag| {
-                        tester.log_created(tag.clone());
+                    pinnacle_api::workspace::connect_signal(WorkspaceSignal::Created(Box::new(move |workspace| {
+                        tester.log_created(workspace.clone());
                     })));
                 signal_handle_clone.set(handle).unwrap();
 
                 let output = pinnacle_api::output::get_focused().unwrap();
-                let _ = pinnacle_api::tag::add(&output, [tag_name]);
+                let _ = pinnacle_api::workspace::add(&output, [workspace_name]);
             }),
             Lang::Lua => spawn_lua_blocking! {
                 fixture,
-                Tag.connect_signal({
-                    created = function(tag)
-                        $tester:log_created(tag.id)
+                Workspace.connect_signal({
+                    created = function(workspace)
+                        $tester:log_created(workspace.id)
                     end
                 })
 
                 local out = Output.get_focused()
-                Tag.add(out, $tag_name)
+                Workspace.add(out, $workspace_name)
 
                 local client = require("pinnacle.grpc.client").client
                 while not $tester:done() do
@@ -795,11 +795,11 @@ fn tag_signal_created() {
 
         fixture.dispatch_until(|_| tester_cpy.done());
 
-        let new_tag = output
+        let new_workspace = output
             .with_state(|s| {
-                s.tags.iter().find_map(|t| {
-                    if t.name() == tag_name {
-                        Some(TagHandle::from_id(t.id().to_inner()))
+                s.workspaces.iter().find_map(|t| {
+                    if t.name() == workspace_name {
+                        Some(WorkspaceHandle::from_id(t.id().to_inner()))
                     } else {
                         None
                     }
@@ -808,7 +808,7 @@ fn tag_signal_created() {
             .unwrap();
 
         let storage = tester_cpy.created().lock().unwrap();
-        assert!(storage.contains(&new_tag));
+        assert!(storage.contains(&new_workspace));
 
         if lang == Lang::Rust {
             signal_handle.get().unwrap().disconnect();
@@ -817,13 +817,13 @@ fn tag_signal_created() {
 }
 
 #[test_log::test]
-fn tag_signal_removed() {
+fn workspace_signal_removed() {
     for_each_api(|lang| {
-        let (mut fixture, _o1, _o2, tags, ..) = set_up();
+        let (mut fixture, _o1, _o2, workspaces, ..) = set_up();
 
-        let tag_name = "2";
-        let tag_handle = TagHandle::from_id(tags[1].id().to_inner());
-        let tester = TagSignalTester::new(move |t| {
+        let workspace_name = "2";
+        let workspace_handle = WorkspaceHandle::from_id(workspaces[1].id().to_inner());
+        let tester = WorkspaceSignalTester::new(move |t| {
             let Ok(created) = t.removed().try_lock() else {
                 return false;
             };
@@ -838,24 +838,24 @@ fn tag_signal_removed() {
         match lang {
             Lang::Rust => fixture.spawn_blocking(move || {
                 let handle =
-                    pinnacle_api::tag::connect_signal(TagSignal::Removed(Box::new(move |tag| {
-                        tester.log_removed(tag.clone());
+                    pinnacle_api::workspace::connect_signal(WorkspaceSignal::Removed(Box::new(move |workspace| {
+                        tester.log_removed(workspace.clone());
                     })));
                 signal_handle_clone.set(handle).unwrap();
 
-                let to_remove = pinnacle_api::tag::get(tag_name).unwrap();
-                pinnacle_api::tag::remove([to_remove]);
+                let to_remove = pinnacle_api::workspace::get(workspace_name).unwrap();
+                pinnacle_api::workspace::remove([to_remove]);
             }),
             Lang::Lua => spawn_lua_blocking! {
                 fixture,
-                Tag.connect_signal({
-                    removed = function(tag)
-                        $tester:log_removed(tag.id)
+                Workspace.connect_signal({
+                    removed = function(workspace)
+                        $tester:log_removed(workspace.id)
                     end
                 })
 
-                local to_remove = Tag.get($tag_name);
-                Tag.remove({to_remove})
+                local to_remove = Workspace.get($workspace_name);
+                Workspace.remove({to_remove})
 
                 local client = require("pinnacle.grpc.client").client
                 while not $tester:done() do
@@ -867,7 +867,7 @@ fn tag_signal_removed() {
         fixture.dispatch_until(|_| tester_cpy.done());
 
         let storage = tester_cpy.removed().lock().unwrap();
-        assert!(storage.contains(&tag_handle));
+        assert!(storage.contains(&workspace_handle));
 
         if lang == Lang::Rust {
             signal_handle.get().unwrap().disconnect();

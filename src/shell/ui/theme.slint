@@ -1,0 +1,49 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+
+// What all of the shell's UI shares.
+
+// Material 3 colors. These stand-ins are neutral, as they're only seen until the
+// wallpaper's palette is known, and shouldn't look like a theme of their own.
+export global Theme {
+    in property <color> surface: #161616;
+    in property <color> primary: #D4D4D4;
+    in property <color> on-primary: #262626;
+    in property <color> on-surface: #E6E6E6;
+    in property <color> on-surface-variant: #C4C4C4;
+    in property <color> error: #F2B8B5;
+    // More saturated than `primary`, for things that are active.
+    in property <color> accent: #D4D4D4;
+}
+
+// Material 3 motion tokens.
+export global Motion {
+    out property <duration> short: 150ms;
+    out property <duration> medium: 300ms;
+    out property <duration> long: 400ms;
+    out property <easing> emphasized: cubic-bezier(0.2, 0, 0, 1);
+}
+
+export component Pill inherits Rectangle {
+    height: 30px;
+    border-radius: self.height / 2;
+    background: Theme.surface.with-alpha(0.92);
+}
+
+export component Icon inherits Path {
+    in property <length> size: 16px;
+
+    width: size;
+    height: size;
+    viewbox-x: 0;
+    viewbox-y: -960;
+    viewbox-width: 960;
+    viewbox-height: 960;
+    fill: Theme.on-surface;
+}
+
+export component Label inherits Text {
+    font-size: 12px;
+    font-weight: 500;
+    color: Theme.on-surface;
+    vertical-alignment: center;
+}

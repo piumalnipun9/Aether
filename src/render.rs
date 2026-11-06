@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
+pub mod border;
 pub mod pointer;
 pub mod render_elements;
 pub mod texture;
@@ -10,8 +11,9 @@ use smithay::{
     backend::renderer::{
         ImportAll, ImportMem, Renderer, RendererSuper, Texture,
         element::{
-            self, AsRenderElements, RenderElementStates,
+            self, AsRenderElements, Element, RenderElementStates,
             solid::SolidColorRenderElement,
+            utils::RescaleRenderElement,
             surface::{WaylandSurfaceRenderElement, render_elements_from_surface_tree},
         },
         gles::GlesRenderer,
@@ -25,7 +27,7 @@ use smithay::{
     },
     output::Output,
     reexports::wayland_server::protocol::wl_surface::WlSurface,
-    utils::{Logical, Physical, Point, Scale},
+    utils::{Logical, Physical, Point, Rectangle, Scale},
     wayland::shell::wlr_layer,
 };
 use util::{snapshot::SnapshotRenderElement, surface::WlSurfaceTextureRenderElement};
@@ -42,7 +44,7 @@ use self::{
     pointer::PointerRenderElement, util::surface::texture_render_elements_from_surface_tree,
 };
 
-pub const CLEAR_COLOR: [f32; 4] = [0.6, 0.6, 0.6, 1.0];
+pub const CLEAR_COLOR: [f32; 4] = [0.08, 0.08, 0.08, 1.0];
 pub const CLEAR_COLOR_LOCKED: [f32; 4] = [0.2, 0.0, 0.3, 1.0];
 
 pinnacle_render_elements! {
@@ -52,6 +54,14 @@ pinnacle_render_elements! {
         Pointer = PointerRenderElement<R>,
         Snapshot = SnapshotRenderElement,
         SolidColor = SolidColorRenderElement,
+        /// A window surface scaled by its open animation.
+        RescaledSurface = RescaleRenderElement<WaylandSurfaceRenderElement<R>>,
+        /// A window snapshot scaled by its close animation.
+        RescaledSnapshot = RescaleRenderElement<SnapshotRenderElement>,
+        /// A shell window.
+        Shell = element::memory::MemoryRenderBufferRenderElement<R>,
+        /// The blurred scene behind quick settings.
+        Backdrop = texture::CommonTextureRenderElement,
     }
 }
 
@@ -446,7 +456,7 @@ struct WindowRenderElements<R: PRenderer> {
     rest: Vec<OutputRenderElement<R>>,
 }
 
-/// Renders surface and popup elements for windows on active tags.
+/// Renders surface and popup elements for windows on active workspaces.
 fn window_render_elements<R: PRenderer + AsGlesRenderer>(
     output: &Output,
     space: &Space<WindowElement>,
@@ -487,6 +497,22 @@ fn window_render_elements<R: PRenderer + AsGlesRenderer>(
 
     let mut popups = Vec::new();
 
+    // While switching workspaces, the new workspace slides in and the old one slides out.
+    let output_width = space
+        .output_geometry(output)
+        .map(|geo| geo.size.w)
+        .unwrap_or_default();
+    let (old_ws_offset, new_ws_offset, switching) = output.with_state(|state| {
+        match state.workspace_switch.as_ref() {
+            Some(switch) => {
+                let (old, new) = switch.offsets(output_width);
+                (old, new, true)
+            }
+            None => (0.0, 0.0, false),
+        }
+    });
+    let new_ws_offset = Point::<f64, Logical>::from((new_ws_offset, 0.0));
+
     let mut fullscreen_and_up = renderables
         .into_iter()
         .rev()
@@ -497,32 +523,128 @@ fn window_render_elements<R: PRenderer + AsGlesRenderer>(
                     last_fullscreen_split_at = i + 1;
                 }
 
-                let loc =
-                    space.element_location(win).unwrap_or_default() - output.current_location();
+                let loc = (space.element_location(win).unwrap_or_default()
+                    - output.current_location())
+                .to_f64()
+                    + win.move_offset()
+                    + new_ws_offset;
+                let loc_f = loc;
+                let loc = loc.to_i32_round();
+
+                let appearance = win.open_appearance();
 
                 let SplitRenderElements {
                     surface_elements,
                     popup_elements,
-                } = win.render_elements(renderer, loc, scale, 1.0, true);
+                } = win.render_elements(renderer, loc, scale, appearance.alpha, true);
 
                 popups.extend(popup_elements.into_iter().map(OutputRenderElement::from));
 
-                let iter = surface_elements.into_iter().map(OutputRenderElement::from);
-                itertools::Either::Left(iter)
+                // Opening windows scale about their center; resizing ones stretch from
+                // their top-left. A window that opens and resizes at once only does the former.
+                let (origin, elem_scale) = if !appearance.is_identity() {
+                    let center = loc + win.geometry().size.downscale(2);
+                    (center, Some(Scale::from(appearance.scale)))
+                } else {
+                    let (sx, sy) = win.move_scale();
+                    let stretched = (sx - 1.0).abs() > 0.001 || (sy - 1.0).abs() > 0.001;
+                    (loc, stretched.then(|| Scale::from((sx, sy))))
+                };
+
+                // The border follows the window as drawn, under it.
+                let border_elements = if win.wants_border() {
+                    let size = win.geometry().size.to_f64();
+                    let rect = if !appearance.is_identity() {
+                        let s = appearance.scale;
+                        let scaled = size.upscale(s);
+                        let center = loc_f + size.downscale(2.0).to_point();
+                        Rectangle::new(center - scaled.downscale(2.0).to_point(), scaled)
+                    } else {
+                        let (sx, sy) = win.move_scale();
+                        Rectangle::new(loc_f, (size.w * sx, size.h * sy).into())
+                    };
+                    let colors = output.with_state(|state| state.border_colors);
+                    let color = if win.is_activated() {
+                        colors.focused
+                    } else {
+                        colors.unfocused
+                    };
+                    win.with_state_mut(|state| {
+                        state
+                            .border
+                            .render_elements(rect, color, appearance.border_alpha, scale)
+                    })
+                } else {
+                    Vec::new()
+                };
+                let border_elements = border_elements.into_iter().map(OutputRenderElement::from);
+
+                let iter: Box<dyn Iterator<Item = OutputRenderElement<R>>> = match elem_scale {
+                    None => Box::new(surface_elements.into_iter().map(OutputRenderElement::from)),
+                    Some(elem_scale) => {
+                        let origin = origin.to_physical_precise_round(scale);
+                        Box::new(surface_elements.into_iter().map(move |elem| {
+                            OutputRenderElement::from(RescaleRenderElement::from_element(
+                                elem, origin, elem_scale,
+                            ))
+                        }))
+                    }
+                };
+                Box::new(iter.chain(border_elements)) as Box<dyn Iterator<Item = _>>
             }
             itertools::Either::Right(snap) => {
+                // The old workspace's windows are drawn from the switch's own snapshots.
+                if switching && snap.close_animation.is_none() {
+                    return Box::new(std::iter::empty()) as Box<dyn Iterator<Item = _>>;
+                }
                 if snap.fullscreen {
                     last_fullscreen_split_at = i + 1;
                 }
-                let space_loc = snap.space_loc;
-                let loc = space_loc - output.current_location();
-                let loc = loc.to_f64().to_physical_precise_round(scale);
-                let snap = snap.snapshot.render_elements(renderer, loc, scale, 1.0);
-                let iter = snap.into_iter().map(OutputRenderElement::from);
-                itertools::Either::Right(iter)
+                let appearance = snap.appearance();
+                let loc = (snap.space_loc - output.current_location()).to_f64() + new_ws_offset;
+                let loc = loc.to_physical_precise_round(scale);
+                let elem = snap
+                    .snapshot
+                    .render_elements(renderer, loc, scale, appearance.alpha);
+                let iter: Box<dyn Iterator<Item = OutputRenderElement<R>>> =
+                    if appearance.is_identity() {
+                        Box::new(elem.into_iter().map(OutputRenderElement::from))
+                    } else {
+                        Box::new(elem.into_iter().map(move |elem| {
+                            let geo = elem.geometry(scale);
+                            let origin = geo.loc + geo.size.downscale(2).to_point();
+                            OutputRenderElement::from(RescaleRenderElement::from_element(
+                                elem,
+                                origin,
+                                appearance.scale,
+                            ))
+                        }))
+                    };
+                iter
             }
         })
         .collect::<Vec<_>>();
+
+    // The old workspace slides out underneath everything else.
+    if switching {
+        let old_elements = output.with_state(|state| {
+            let Some(switch) = state.workspace_switch.as_ref() else {
+                return Vec::new();
+            };
+            switch
+                .old_windows
+                .iter()
+                .rev()
+                .filter_map(|(snapshot, loc)| {
+                    let loc = (loc.to_f64() + Point::from((old_ws_offset, 0.0)))
+                        .to_physical_precise_round(scale);
+                    snapshot.render_elements(renderer, loc, scale, 1.0)
+                })
+                .map(OutputRenderElement::from)
+                .collect::<Vec<_>>()
+        });
+        fullscreen_and_up.push(Box::new(old_elements.into_iter()));
+    }
 
     let rest = fullscreen_and_up.split_off(last_fullscreen_split_at);
 
@@ -562,14 +684,25 @@ pub fn output_render_elements<R: PRenderer + AsGlesRenderer>(
 
     // Elements render from top to bottom
 
+    output_render_elements.extend(crate::shell::panel_render_elements(output, renderer, space));
     output_render_elements.extend(layer_popups.into_iter().map(OutputRenderElement::from));
     output_render_elements.extend(window_popups);
     output_render_elements.extend(overlay.into_iter().map(OutputRenderElement::from));
     output_render_elements.extend(fullscreen_and_up_elements);
+    output_render_elements.extend(
+        output
+            .with_state(|state| state.bar.as_ref()?.render_element(renderer))
+            .map(OutputRenderElement::from),
+    );
     output_render_elements.extend(top.into_iter().map(OutputRenderElement::from));
     output_render_elements.extend(rest_of_window_elements);
     output_render_elements.extend(bottom.into_iter().map(OutputRenderElement::from));
     output_render_elements.extend(background.into_iter().map(OutputRenderElement::from));
+    output_render_elements.extend(
+        output
+            .with_state(|state| state.wallpaper.as_ref()?.render_element(renderer))
+            .map(OutputRenderElement::from),
+    );
 
     output_render_elements
 }

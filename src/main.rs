@@ -99,7 +99,7 @@ async fn run() -> anyhow::Result<()> {
         .with_filter(file_log_env_filter);
 
     let stdout_env_filter =
-        env_filter.unwrap_or_else(|_| EnvFilter::new("warn,pinnacle=info,snowcap=info,sctk=error"));
+        env_filter.unwrap_or_else(|_| EnvFilter::new("warn,pinnacle=info,sctk=error"));
     let stdout_layer = tracing_subscriber::fmt::layer()
         .with_timer(OptionalTimer(
             env::var("PINNACLE_LOG_TIMESTAMPS")
@@ -257,34 +257,6 @@ async fn run() -> anyhow::Result<()> {
         .pinnacle
         .start_grpc_server(&startup_config.socket_dir.clone())?;
 
-    #[cfg(feature = "snowcap")]
-    {
-        use tokio::sync::oneshot::error::TryRecvError;
-
-        let (sender, mut recv) = tokio::sync::oneshot::channel();
-        let join_handle = tokio::task::spawn_blocking(move || {
-            let _span = tracing::error_span!("snowcap");
-            let _span = _span.enter();
-            snowcap::start(Some(sender));
-        });
-
-        let snowcap_handle = loop {
-            if join_handle.is_finished() {
-                panic!("snowcap failed to start");
-            }
-            match recv.try_recv() {
-                Ok(stop_signal) => break stop_signal,
-                Err(TryRecvError::Empty) => {
-                    event_loop.dispatch(Duration::from_secs(1), &mut state)?;
-                    state.on_event_loop_cycle_completion();
-                }
-                Err(TryRecvError::Closed) => panic!("snowcap failed to start"),
-            }
-        };
-
-        state.pinnacle.snowcap_handle = Some(snowcap_handle);
-        state.pinnacle.snowcap_join_handle = Some(join_handle);
-    }
 
     if !startup_config.no_xwayland {
         match state.pinnacle.insert_xwayland_source() {

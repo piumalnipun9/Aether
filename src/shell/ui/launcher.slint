@@ -1,0 +1,382 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+
+// The app launcher, modelled on the app drawer on Pixel phones, with one search for
+// apps, settings, files, sums and the web.
+
+import { Icons } from "icons.slint";
+import { Icon, Motion, Theme } from "theme.slint";
+
+export struct AppItem {
+    id: string,
+    name: string,
+    icon: image,
+    has-icon: bool,
+    initial: string,
+    selected: bool,
+}
+
+export struct ResultItem {
+    // What this is about, on the first of a section.
+    section: string,
+    title: string,
+    subtitle: string,
+    // 0: a file, 1: the web, 2: a sum, 3: settings.
+    kind: int,
+    selected: bool,
+}
+
+global Sizes {
+    out property <length> padding: 16px;
+    out property <length> cell-width: 100px;
+    out property <length> cell-height: 96px;
+    out property <length> icon-size: 56px;
+    out property <length> search-height: 52px;
+    out property <length> result-height: 56px;
+}
+
+export component AppIcon {
+    in property <AppItem> item;
+
+    width: Sizes.icon-size;
+    height: Sizes.icon-size;
+
+    // Like on a phone, every icon sits on the same round shape.
+    Rectangle {
+        border-radius: self.height / 2;
+        background: #F3F1F5;
+        clip: true;
+
+        if item.has-icon: Image {
+            width: 76%;
+            height: 76%;
+            source: item.icon;
+            image-fit: contain;
+        }
+
+        if !item.has-icon: Text {
+            text: item.initial;
+            font-size: 22px;
+            font-weight: 600;
+            color: #3A3540;
+        }
+    }
+}
+
+component AppCell {
+    in property <AppItem> item;
+    callback clicked();
+
+    width: Sizes.cell-width;
+    height: Sizes.cell-height;
+
+    Rectangle {
+        x: 4px;
+        y: 2px;
+        width: parent.width - 8px;
+        height: parent.height - 4px;
+        border-radius: 20px;
+        background: item.selected
+            ? Theme.accent.with-alpha(0.28)
+            : touch.has-hover ? Theme.on-surface.with-alpha(0.1) : transparent;
+    }
+
+    AppIcon {
+        x: (parent.width - self.width) / 2;
+        y: 8px;
+        item: item;
+    }
+
+    Text {
+        x: 6px;
+        y: 68px;
+        width: parent.width - 12px;
+        text: item.name;
+        font-size: 12px;
+        font-weight: 500;
+        color: Theme.on-surface;
+        horizontal-alignment: center;
+        overflow: elide;
+    }
+
+    touch := TouchArea {
+        clicked => {
+            root.clicked();
+        }
+    }
+}
+
+component ResultRow {
+    in property <ResultItem> item;
+    callback clicked();
+
+    property <[string]> icons: [Icons.file, Icons.web, Icons.calculate, Icons.settings];
+
+    height: Sizes.result-height + (item.section != "" ? 28px : 0px);
+
+    if item.section != "": Text {
+        x: 12px;
+        y: 0;
+        height: 28px;
+        text: item.section;
+        font-size: 12px;
+        font-weight: 600;
+        color: Theme.on-surface-variant;
+        vertical-alignment: center;
+    }
+
+    Rectangle {
+        y: parent.height - Sizes.result-height + 2px;
+        height: Sizes.result-height - 4px;
+        border-radius: self.height / 2;
+        background: item.selected
+            ? Theme.accent.with-alpha(0.28)
+            : touch.has-hover ? Theme.on-surface.with-alpha(0.1) : transparent;
+
+        Rectangle {
+            x: 8px;
+            y: (parent.height - self.height) / 2;
+            width: 36px;
+            height: 36px;
+            border-radius: self.height / 2;
+            background: Theme.on-surface.with-alpha(0.12);
+
+            Icon {
+                x: 8px;
+                y: 8px;
+                size: 20px;
+                commands: icons[item.kind];
+            }
+        }
+
+        VerticalLayout {
+            x: 56px;
+            width: parent.width - self.x - 16px;
+            alignment: center;
+
+            Text {
+                text: item.title;
+                font-size: 13px;
+                font-weight: 600;
+                color: Theme.on-surface;
+                overflow: elide;
+            }
+
+            if item.subtitle != "": Text {
+                text: item.subtitle;
+                font-size: 11px;
+                color: Theme.on-surface-variant;
+                overflow: elide;
+            }
+        }
+
+        touch := TouchArea {
+            clicked => {
+                root.clicked();
+            }
+        }
+    }
+}
+
+export component Launcher inherits Window {
+    // Asked to be open. It stays on screen until it has animated away.
+    in property <bool> open;
+
+    in property <[AppItem]> suggestions;
+    in property <[AppItem]> apps;
+    in property <[ResultItem]> results;
+    out property <string> query: search.text;
+    // How many apps fit in a row, which arrow keys need to know.
+    out property <int> columns: floor((self.width - Sizes.padding * 2) / Sizes.cell-width);
+
+    // How much of the panel is visible right now, for the blur behind it.
+    out property <length> panel-height: self.height * reveal;
+    out property <length> panel-radius: 28px;
+
+    callback query-changed(string);
+    callback app-clicked(string);
+    callback result-clicked(int);
+
+    public function focus-search() {
+        search.focus();
+    }
+
+    public function clear-search() {
+        search.text = "";
+    }
+
+    // Keeps something chosen with the keyboard in view.
+    public function scroll-to(top: length, height: length) {
+        if top < -list.content-y {
+            list.content-y = -top;
+        } else if top + height > -list.content-y + list.height {
+            list.content-y = list.height - top - height;
+        }
+    }
+
+    property <float> reveal: open ? 1 : 0;
+    property <bool> searching: search.text != "";
+    property <length> grid-width: columns * Sizes.cell-width;
+    property <length> grid-x: (self.width - grid-width) / 2;
+
+    animate reveal {
+        duration: Motion.long;
+        easing: Motion.emphasized;
+    }
+
+    background: transparent;
+    default-font-family: "Inter";
+
+    Rectangle {
+        y: 0;
+        height: panel-height;
+        clip: true;
+        border-radius: panel-radius;
+        // The shade over the blur, which is dark or light with the theme.
+        background: Theme.surface.with-alpha(0.6);
+        opacity: min(reveal * 2, 1);
+
+        TouchArea { }
+
+        // The search pill.
+        Rectangle {
+            x: Sizes.padding;
+            y: Sizes.padding;
+            width: parent.width - Sizes.padding * 2;
+            height: Sizes.search-height;
+            border-radius: self.height / 2;
+            background: Theme.on-surface.with-alpha(0.12);
+
+            Icon {
+                x: 18px;
+                y: (parent.height - self.height) / 2;
+                size: 22px;
+                commands: Icons.search;
+                fill: Theme.on-surface-variant;
+            }
+
+            search := TextInput {
+                x: 54px;
+                width: parent.width - 70px;
+                font-size: 15px;
+                color: Theme.on-surface;
+                vertical-alignment: center;
+                single-line: true;
+                edited => {
+                    root.query-changed(self.text);
+                }
+            }
+
+            if search.text == "": Text {
+                x: 54px;
+                text: "Search apps, settings, files and the web";
+                font-size: 15px;
+                color: Theme.on-surface-variant;
+                vertical-alignment: center;
+            }
+        }
+
+        list := Flickable {
+            x: 0;
+            y: Sizes.padding + Sizes.search-height + 10px;
+            width: parent.width;
+            height: root.height - self.y - 8px;
+
+            VerticalLayout {
+                alignment: start;
+                padding-left: grid-x;
+                padding-right: grid-x;
+                padding-bottom: 8px;
+
+                if !searching && suggestions.length > 0: Rectangle {
+                    height: Sizes.cell-height + 12px;
+
+                    for item[index] in suggestions: AppCell {
+                        x: Sizes.cell-width * index;
+                        y: 0;
+                        item: item;
+                        clicked => {
+                            root.app-clicked(item.id);
+                        }
+                    }
+
+                    Rectangle {
+                        x: 12px;
+                        y: parent.height - 5px;
+                        width: parent.width - 24px;
+                        height: 1px;
+                        background: Theme.on-surface.with-alpha(0.14);
+                    }
+                }
+
+                if apps.length > 0: Rectangle {
+                    height: ceil(apps.length / columns) * Sizes.cell-height;
+
+                    for item[index] in apps: AppCell {
+                        x: Sizes.cell-width * mod(index, columns);
+                        y: Sizes.cell-height * floor(index / columns);
+                        item: item;
+                        clicked => {
+                            root.app-clicked(item.id);
+                        }
+                    }
+                }
+
+                if results.length > 0: VerticalLayout {
+                    for item[index] in results: ResultRow {
+                        item: item;
+                        clicked => {
+                            root.result-clicked(index);
+                        }
+                    }
+                }
+            }
+        }
+
+        // Shows how far along the list is, and can be dragged.
+        if list.content-height > list.height + 1px: Rectangle {
+            property <length> track-height: self.height - 8px;
+            property <length> thumb-height:
+                max(self.track-height * list.height / list.content-height, 32px);
+            property <length> range: list.content-height - list.height;
+
+            x: parent.width - self.width - 3px;
+            y: list.y + 2px;
+            width: 14px;
+            height: list.height - 4px;
+
+            function drag(position: length) {
+                list.content-y = -clamp(
+                    (position - self.thumb-height / 2) / (self.track-height - self.thumb-height),
+                    0,
+                    1) * self.range;
+            }
+
+            scrollbar-touch := TouchArea {
+                pointer-event(event) => {
+                    if event.kind == PointerEventKind.down {
+                        parent.drag(self.mouse-y);
+                    }
+                }
+                moved => {
+                    parent.drag(self.mouse-y);
+                }
+            }
+
+            Rectangle {
+                x: (parent.width - self.width) / 2;
+                y: 4px + (parent.track-height - self.height)
+                    * clamp(-list.content-y / parent.range, 0, 1);
+                width: scrollbar-touch.has-hover || scrollbar-touch.pressed ? 7px : 5px;
+                height: parent.thumb-height;
+                border-radius: self.width / 2;
+                background: Theme.on-surface.with-alpha(
+                    scrollbar-touch.has-hover || scrollbar-touch.pressed ? 0.6 : 0.35);
+
+                animate width {
+                    duration: Motion.short;
+                    easing: Motion.emphasized;
+                }
+            }
+        }
+    }
+}

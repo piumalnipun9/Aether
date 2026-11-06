@@ -6,7 +6,7 @@ pub mod pinnacle;
 pub mod process;
 pub mod render;
 pub mod signal;
-pub mod tag;
+pub mod workspace;
 pub mod window;
 
 use std::pin::Pin;

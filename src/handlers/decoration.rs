@@ -84,7 +84,7 @@ impl State {
             .unmapped_window_for_surface_mut(toplevel.wl_surface())
         {
             match &mut unmapped.state {
-                UnmappedState::WaitingForTags { client_requests }
+                UnmappedState::WaitingForWorkspaces { client_requests }
                 | UnmappedState::WaitingForRules {
                     rules: _,
                     client_requests,
@@ -138,7 +138,7 @@ impl State {
             .unmapped_window_for_surface_mut(toplevel.wl_surface())
         {
             match &mut unmapped.state {
-                UnmappedState::WaitingForTags { client_requests } => {
+                UnmappedState::WaitingForWorkspaces { client_requests } => {
                     client_requests.decoration_mode = None;
                 }
                 UnmappedState::WaitingForRules {

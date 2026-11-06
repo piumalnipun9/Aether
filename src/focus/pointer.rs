@@ -1,6 +1,7 @@
 use std::{borrow::Cow, sync::Arc};
 
 use smithay::{
+    backend::input::ButtonState,
     desktop::{
         LayerSurface, PopupKind, WindowSurface, WindowSurfaceType, layer_map_for_output,
         utils::with_surfaces_surface_tree,
@@ -8,7 +9,7 @@ use smithay::{
     input::{
         Seat, SeatHandler,
         dnd::{DndFocus, Source},
-        pointer::{self, PointerTarget},
+        pointer::{self, CursorImageStatus, PointerTarget},
         touch::{self, TouchTarget},
     },
     output::WeakOutput,
@@ -22,16 +23,37 @@ use smithay::{
 
 use crate::{
     api::signal::Signal as _,
+    shell::BTN_LEFT,
     state::{Pinnacle, State, WithState},
     window::WindowElement,
 };
 
 use super::keyboard::KeyboardFocusTarget;
+use crate::shell::{ShellSurface, ShellWindow};
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum PointerFocusTarget {
     WlSurface(WlSurface),
     X11Surface(X11Surface),
+    /// One of the shell's windows on this output.
+    Shell(WeakOutput, ShellSurface),
+}
+
+/// Runs `func` with a shell window of `output`, if it still has it.
+fn with_shell(output: &WeakOutput, surface: ShellSurface, func: impl FnOnce(&ShellWindow)) {
+    if let Some(output) = output.upgrade() {
+        output.with_state(|state| {
+            let window = match surface {
+                ShellSurface::Bar => state.bar.as_ref().map(|bar| &bar.window),
+                ShellSurface::QuickSettings => state.panel.as_ref().map(|panel| &panel.window),
+                ShellSurface::Clock => state.clock.as_ref().map(|clock| &clock.window),
+                ShellSurface::Toasts => state.toasts.as_ref().map(|toasts| &toasts.window),
+                ShellSurface::Launcher => state.launcher.as_ref().map(|launcher| &launcher.window),
+                ShellSurface::Settings => state.settings.as_ref().map(|settings| &settings.window),
+            };
+            window.map(func)
+        });
+    }
 }
 
 pub enum OfferData<S: Source> {
@@ -104,6 +126,7 @@ impl PointerFocusTarget {
                 .iter()
                 .find(|win| win.x11_surface() == Some(surf))
                 .cloned(),
+            PointerFocusTarget::Shell(..) => None,
         }
     }
 
@@ -113,14 +136,14 @@ impl PointerFocusTarget {
                 let map = layer_map_for_output(op);
                 map.layer_for_surface(surf, WindowSurfaceType::ALL).cloned()
             }),
-            PointerFocusTarget::X11Surface(_) => None,
+            PointerFocusTarget::X11Surface(_) | PointerFocusTarget::Shell(..) => None,
         }
     }
 
     pub fn popup_for(&self, pinnacle: &Pinnacle) -> Option<PopupKind> {
         match self {
             PointerFocusTarget::WlSurface(surf) => pinnacle.popup_manager.find_popup(surf),
-            PointerFocusTarget::X11Surface(_) => None,
+            PointerFocusTarget::X11Surface(_) | PointerFocusTarget::Shell(..) => None,
         }
     }
 
@@ -134,7 +157,7 @@ impl PointerFocusTarget {
                     _ => None,
                 })
             }),
-            PointerFocusTarget::X11Surface(_) => None,
+            PointerFocusTarget::X11Surface(_) | PointerFocusTarget::Shell(..) => None,
         }
     }
 
@@ -159,6 +182,7 @@ impl IsAlive for PointerFocusTarget {
         match self {
             PointerFocusTarget::WlSurface(surf) => surf.alive(),
             PointerFocusTarget::X11Surface(surf) => surf.alive(),
+            PointerFocusTarget::Shell(output, _) => output.is_alive(),
         }
     }
 }
@@ -176,6 +200,7 @@ impl DndFocus<State> for PointerFocusTarget {
         serial: &Serial,
     ) -> Option<Self::OfferData<S>> {
         match self {
+            PointerFocusTarget::Shell(..) => None,
             PointerFocusTarget::WlSurface(wl_surface) => {
                 DndFocus::enter(wl_surface, data, dh, source, seat, location, serial)
                     .map(OfferData::Wayland)
@@ -196,6 +221,7 @@ impl DndFocus<State> for PointerFocusTarget {
         time: u32,
     ) {
         match self {
+            PointerFocusTarget::Shell(..) => (),
             PointerFocusTarget::WlSurface(wl_surface) => {
                 let offer = match offer {
                     Some(OfferData::Wayland(offer)) => Some(offer),
@@ -222,6 +248,7 @@ impl DndFocus<State> for PointerFocusTarget {
         seat: &Seat<State>,
     ) {
         match self {
+            PointerFocusTarget::Shell(..) => (),
             PointerFocusTarget::WlSurface(wl_surface) => {
                 let offer = match offer {
                     Some(OfferData::Wayland(offer)) => Some(offer),
@@ -248,6 +275,7 @@ impl DndFocus<State> for PointerFocusTarget {
         seat: &Seat<State>,
     ) {
         match self {
+            PointerFocusTarget::Shell(..) => (),
             PointerFocusTarget::WlSurface(wl_surface) => {
                 let offer = match offer {
                     Some(OfferData::Wayland(offer)) => Some(offer),
@@ -271,6 +299,13 @@ impl DndFocus<State> for PointerFocusTarget {
 impl PointerTarget<State> for PointerFocusTarget {
     fn enter(&self, seat: &Seat<State>, data: &mut State, event: &pointer::MotionEvent) {
         match self {
+            PointerFocusTarget::Shell(output, surface) => {
+                // Clients set the cursor when they get the pointer; the bar doesn't.
+                data.pinnacle
+                    .cursor_state
+                    .set_cursor_image(CursorImageStatus::default_named());
+                with_shell(output, *surface, |bar| bar.pointer_moved(event.location));
+            }
             PointerFocusTarget::WlSurface(surf) => PointerTarget::enter(surf, seat, data, event),
             PointerFocusTarget::X11Surface(surf) => PointerTarget::enter(surf, seat, data, event),
         }
@@ -278,6 +313,9 @@ impl PointerTarget<State> for PointerFocusTarget {
 
     fn motion(&self, seat: &Seat<State>, data: &mut State, event: &pointer::MotionEvent) {
         match self {
+            PointerFocusTarget::Shell(output, surface) => {
+                with_shell(output, *surface, |bar| bar.pointer_moved(event.location));
+            }
             PointerFocusTarget::WlSurface(surf) => PointerTarget::motion(surf, seat, data, event),
             PointerFocusTarget::X11Surface(surf) => PointerTarget::motion(surf, seat, data, event),
         }
@@ -290,6 +328,7 @@ impl PointerTarget<State> for PointerFocusTarget {
         event: &pointer::RelativeMotionEvent,
     ) {
         match self {
+            PointerFocusTarget::Shell(..) => (),
             PointerFocusTarget::WlSurface(surf) => {
                 PointerTarget::relative_motion(surf, seat, data, event);
             }
@@ -301,6 +340,10 @@ impl PointerTarget<State> for PointerFocusTarget {
 
     fn button(&self, seat: &Seat<State>, data: &mut State, event: &pointer::ButtonEvent) {
         match self {
+            PointerFocusTarget::Shell(output, surface) => {
+                let pressed = event.state == ButtonState::Pressed;
+                with_shell(output, *surface, |bar| bar.pointer_button(event.button, pressed));
+            }
             PointerFocusTarget::WlSurface(surf) => PointerTarget::button(surf, seat, data, event),
             PointerFocusTarget::X11Surface(surf) => PointerTarget::button(surf, seat, data, event),
         }
@@ -308,6 +351,12 @@ impl PointerTarget<State> for PointerFocusTarget {
 
     fn axis(&self, seat: &Seat<State>, data: &mut State, frame: pointer::AxisFrame) {
         match self {
+            PointerFocusTarget::Shell(output, surface) => {
+                let (horizontal, vertical) = frame.axis;
+                with_shell(output, *surface, |window| {
+                    window.pointer_scrolled(horizontal, vertical);
+                });
+            }
             PointerFocusTarget::WlSurface(surf) => PointerTarget::axis(surf, seat, data, frame),
             PointerFocusTarget::X11Surface(surf) => PointerTarget::axis(surf, seat, data, frame),
         }
@@ -315,6 +364,7 @@ impl PointerTarget<State> for PointerFocusTarget {
 
     fn frame(&self, seat: &Seat<State>, data: &mut State) {
         match self {
+            PointerFocusTarget::Shell(..) => (),
             PointerFocusTarget::WlSurface(surf) => PointerTarget::frame(surf, seat, data),
             PointerFocusTarget::X11Surface(surf) => PointerTarget::frame(surf, seat, data),
         }
@@ -327,6 +377,7 @@ impl PointerTarget<State> for PointerFocusTarget {
         event: &pointer::GestureSwipeBeginEvent,
     ) {
         match self {
+            PointerFocusTarget::Shell(..) => (),
             PointerFocusTarget::WlSurface(surf) => {
                 PointerTarget::gesture_swipe_begin(surf, seat, data, event);
             }
@@ -343,6 +394,7 @@ impl PointerTarget<State> for PointerFocusTarget {
         event: &pointer::GestureSwipeUpdateEvent,
     ) {
         match self {
+            PointerFocusTarget::Shell(..) => (),
             PointerFocusTarget::WlSurface(surf) => {
                 PointerTarget::gesture_swipe_update(surf, seat, data, event);
             }
@@ -359,6 +411,7 @@ impl PointerTarget<State> for PointerFocusTarget {
         event: &pointer::GestureSwipeEndEvent,
     ) {
         match self {
+            PointerFocusTarget::Shell(..) => (),
             PointerFocusTarget::WlSurface(surf) => {
                 PointerTarget::gesture_swipe_end(surf, seat, data, event);
             }
@@ -375,6 +428,7 @@ impl PointerTarget<State> for PointerFocusTarget {
         event: &pointer::GesturePinchBeginEvent,
     ) {
         match self {
+            PointerFocusTarget::Shell(..) => (),
             PointerFocusTarget::WlSurface(surf) => {
                 PointerTarget::gesture_pinch_begin(surf, seat, data, event);
             }
@@ -391,6 +445,7 @@ impl PointerTarget<State> for PointerFocusTarget {
         event: &pointer::GesturePinchUpdateEvent,
     ) {
         match self {
+            PointerFocusTarget::Shell(..) => (),
             PointerFocusTarget::WlSurface(surf) => {
                 PointerTarget::gesture_pinch_update(surf, seat, data, event);
             }
@@ -407,6 +462,7 @@ impl PointerTarget<State> for PointerFocusTarget {
         event: &pointer::GesturePinchEndEvent,
     ) {
         match self {
+            PointerFocusTarget::Shell(..) => (),
             PointerFocusTarget::WlSurface(surf) => {
                 PointerTarget::gesture_pinch_end(surf, seat, data, event);
             }
@@ -423,6 +479,7 @@ impl PointerTarget<State> for PointerFocusTarget {
         event: &pointer::GestureHoldBeginEvent,
     ) {
         match self {
+            PointerFocusTarget::Shell(..) => (),
             PointerFocusTarget::WlSurface(surf) => {
                 PointerTarget::gesture_hold_begin(surf, seat, data, event);
             }
@@ -439,6 +496,7 @@ impl PointerTarget<State> for PointerFocusTarget {
         event: &pointer::GestureHoldEndEvent,
     ) {
         match self {
+            PointerFocusTarget::Shell(..) => (),
             PointerFocusTarget::WlSurface(surf) => {
                 PointerTarget::gesture_hold_end(surf, seat, data, event);
             }
@@ -450,6 +508,7 @@ impl PointerTarget<State> for PointerFocusTarget {
 
     fn leave(&self, seat: &Seat<State>, data: &mut State, serial: Serial, time: u32) {
         match self {
+            PointerFocusTarget::Shell(output, surface) => with_shell(output, *surface, |bar| bar.pointer_left()),
             PointerFocusTarget::WlSurface(surf) => {
                 PointerTarget::leave(surf, seat, data, serial, time);
             }
@@ -463,6 +522,12 @@ impl PointerTarget<State> for PointerFocusTarget {
 impl TouchTarget<State> for PointerFocusTarget {
     fn down(&self, seat: &Seat<State>, data: &mut State, event: &touch::DownEvent, seq: Serial) {
         match self {
+            PointerFocusTarget::Shell(output, surface) => {
+                with_shell(output, *surface, |bar| {
+                    bar.pointer_moved(event.location);
+                    bar.pointer_button(BTN_LEFT, true);
+                });
+            }
             PointerFocusTarget::WlSurface(surf) => TouchTarget::down(surf, seat, data, event, seq),
             PointerFocusTarget::X11Surface(surf) => TouchTarget::down(surf, seat, data, event, seq),
         }
@@ -470,6 +535,12 @@ impl TouchTarget<State> for PointerFocusTarget {
 
     fn up(&self, seat: &Seat<State>, data: &mut State, event: &touch::UpEvent, seq: Serial) {
         match self {
+            PointerFocusTarget::Shell(output, surface) => {
+                with_shell(output, *surface, |bar| {
+                    bar.pointer_button(BTN_LEFT, false);
+                    bar.pointer_left();
+                });
+            }
             PointerFocusTarget::WlSurface(surf) => TouchTarget::up(surf, seat, data, event, seq),
             PointerFocusTarget::X11Surface(surf) => TouchTarget::up(surf, seat, data, event, seq),
         }
@@ -483,6 +554,9 @@ impl TouchTarget<State> for PointerFocusTarget {
         seq: Serial,
     ) {
         match self {
+            PointerFocusTarget::Shell(output, surface) => {
+                with_shell(output, *surface, |bar| bar.pointer_moved(event.location));
+            }
             PointerFocusTarget::WlSurface(surf) => {
                 TouchTarget::motion(surf, seat, data, event, seq);
             }
@@ -494,6 +568,7 @@ impl TouchTarget<State> for PointerFocusTarget {
 
     fn frame(&self, seat: &Seat<State>, data: &mut State, seq: Serial) {
         match self {
+            PointerFocusTarget::Shell(..) => (),
             PointerFocusTarget::WlSurface(surf) => TouchTarget::frame(surf, seat, data, seq),
             PointerFocusTarget::X11Surface(surf) => TouchTarget::frame(surf, seat, data, seq),
         }
@@ -501,6 +576,7 @@ impl TouchTarget<State> for PointerFocusTarget {
 
     fn cancel(&self, seat: &Seat<State>, data: &mut State, seq: Serial) {
         match self {
+            PointerFocusTarget::Shell(..) => (),
             PointerFocusTarget::WlSurface(surf) => TouchTarget::cancel(surf, seat, data, seq),
             PointerFocusTarget::X11Surface(surf) => TouchTarget::cancel(surf, seat, data, seq),
         }
@@ -508,6 +584,7 @@ impl TouchTarget<State> for PointerFocusTarget {
 
     fn shape(&self, seat: &Seat<State>, data: &mut State, event: &touch::ShapeEvent, seq: Serial) {
         match self {
+            PointerFocusTarget::Shell(..) => (),
             PointerFocusTarget::WlSurface(surf) => TouchTarget::shape(surf, seat, data, event, seq),
             PointerFocusTarget::X11Surface(surf) => {
                 TouchTarget::shape(surf, seat, data, event, seq);
@@ -523,6 +600,7 @@ impl TouchTarget<State> for PointerFocusTarget {
         seq: Serial,
     ) {
         match self {
+            PointerFocusTarget::Shell(..) => (),
             PointerFocusTarget::WlSurface(surf) => {
                 TouchTarget::orientation(surf, seat, data, event, seq);
             }
@@ -538,6 +616,7 @@ impl WaylandFocus for PointerFocusTarget {
         match self {
             PointerFocusTarget::WlSurface(surf) => Some(Cow::Borrowed(surf)),
             PointerFocusTarget::X11Surface(surf) => surf.wl_surface().map(Cow::Owned),
+            PointerFocusTarget::Shell(..) => None,
         }
     }
 
@@ -545,6 +624,7 @@ impl WaylandFocus for PointerFocusTarget {
         match self {
             PointerFocusTarget::WlSurface(surf) => surf.same_client_as(object_id),
             PointerFocusTarget::X11Surface(surf) => surf.same_client_as(object_id),
+            PointerFocusTarget::Shell(..) => false,
         }
     }
 }
@@ -566,6 +646,9 @@ impl From<KeyboardFocusTarget> for PointerFocusTarget {
             }
             KeyboardFocusTarget::LockSurface(lock) => {
                 PointerFocusTarget::WlSurface(lock.wl_surface().clone())
+            }
+            KeyboardFocusTarget::QuickSettings(output) => {
+                PointerFocusTarget::Shell(output, ShellSurface::QuickSettings)
             }
         }
     }

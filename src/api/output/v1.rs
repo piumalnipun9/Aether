@@ -8,7 +8,7 @@ use pinnacle_api_defs::pinnacle::{
             GetLogicalSizeRequest, GetLogicalSizeResponse, GetModesRequest, GetModesResponse,
             GetOutputsInDirRequest, GetOutputsInDirResponse, GetPhysicalSizeRequest,
             GetPhysicalSizeResponse, GetPoweredRequest, GetPoweredResponse, GetRequest,
-            GetResponse, GetScaleRequest, GetScaleResponse, GetTagIdsRequest, GetTagIdsResponse,
+            GetResponse, GetScaleRequest, GetScaleResponse, GetWorkspaceIdsRequest, GetWorkspaceIdsResponse,
             GetTransformRequest, GetTransformResponse, SetLocRequest, SetModeRequest,
             SetModelineRequest, SetPoweredRequest, SetScaleRequest, SetTransformRequest,
             SetVrrRequest, SetVrrResponse,
@@ -521,28 +521,28 @@ impl output::v1::output_service_server::OutputService for super::OutputService {
         .await
     }
 
-    async fn get_tag_ids(
+    async fn get_workspace_ids(
         &self,
-        request: Request<GetTagIdsRequest>,
-    ) -> TonicResult<GetTagIdsResponse> {
+        request: Request<GetWorkspaceIdsRequest>,
+    ) -> TonicResult<GetWorkspaceIdsResponse> {
         let output_name = OutputName(request.into_inner().output_name);
 
         run_unary(&self.sender, move |state| {
             let output = output_name.output(&state.pinnacle);
 
-            let tag_ids = output
+            let workspace_ids = output
                 .map(|op| {
                     op.with_state(|state| {
                         state
-                            .tags
+                            .workspaces
                             .iter()
-                            .map(|tag| tag.id().to_inner())
+                            .map(|workspace| workspace.id().to_inner())
                             .collect::<Vec<_>>()
                     })
                 })
                 .unwrap_or_default();
 
-            Ok(GetTagIdsResponse { tag_ids })
+            Ok(GetWorkspaceIdsResponse { workspace_ids })
         })
         .await
     }

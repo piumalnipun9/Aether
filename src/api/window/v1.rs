@@ -13,13 +13,13 @@ use pinnacle_api_defs::pinnacle::{
             GetFocusedResponse, GetForeignToplevelListIdentifierRequest,
             GetForeignToplevelListIdentifierResponse, GetLayoutModeRequest, GetLayoutModeResponse,
             GetLocRequest, GetLocResponse, GetRequest, GetResponse, GetSizeRequest,
-            GetSizeResponse, GetTagIdsRequest, GetTagIdsResponse, GetTitleRequest,
+            GetSizeResponse, GetWorkspaceIdsRequest, GetWorkspaceIdsResponse, GetTitleRequest,
             GetTitleResponse, GetWindowsInDirRequest, GetWindowsInDirResponse, LowerRequest,
             LowerResponse, MoveGrabRequest, MoveToOutputRequest, MoveToOutputResponse,
-            MoveToTagRequest, RaiseRequest, ResizeGrabRequest, ResizeTileRequest,
+            MoveToWorkspaceRequest, RaiseRequest, ResizeGrabRequest, ResizeTileRequest,
             SetDecorationModeRequest, SetFloatingRequest, SetFocusedRequest, SetFullscreenRequest,
-            SetGeometryRequest, SetMaximizedRequest, SetTagRequest, SetTagsRequest,
-            SetTagsResponse, SetVrrDemandRequest, SetVrrDemandResponse, SwapRequest, SwapResponse,
+            SetGeometryRequest, SetMaximizedRequest, SetWorkspaceRequest, SetWorkspacesRequest,
+            SetWorkspacesResponse, SetVrrDemandRequest, SetVrrDemandResponse, SwapRequest, SwapResponse,
             WindowRuleRequest, WindowRuleResponse,
         },
     },
@@ -40,7 +40,7 @@ use crate::{
     layout::tree::ResizeDir,
     output::OutputName,
     state::WithState,
-    tag::TagId,
+    workspace::WorkspaceId,
     util::rect::Direction,
     window::{
         UnmappedState,
@@ -194,14 +194,14 @@ impl v1::window_service_server::WindowService for super::WindowService {
         .await
     }
 
-    async fn get_tag_ids(
+    async fn get_workspace_ids(
         &self,
-        request: Request<GetTagIdsRequest>,
-    ) -> TonicResult<GetTagIdsResponse> {
+        request: Request<GetWorkspaceIdsRequest>,
+    ) -> TonicResult<GetWorkspaceIdsResponse> {
         let window_id = WindowId(request.into_inner().window_id);
 
         run_unary(&self.sender, move |state| {
-            let tag_ids = window_id
+            let workspace_ids = window_id
                 .window(&state.pinnacle)
                 .or_else(|| {
                     window_id
@@ -211,15 +211,15 @@ impl v1::window_service_server::WindowService for super::WindowService {
                 .map(|win| {
                     win.with_state(|state| {
                         state
-                            .tags
+                            .workspaces
                             .iter()
-                            .map(|tag| tag.id().to_inner())
+                            .map(|workspace| workspace.id().to_inner())
                             .collect::<Vec<_>>()
                     })
                 })
                 .unwrap_or_default();
 
-            Ok(GetTagIdsResponse { tag_ids })
+            Ok(GetWorkspaceIdsResponse { workspace_ids })
         })
         .await
     }
@@ -597,31 +597,31 @@ impl v1::window_service_server::WindowService for super::WindowService {
         .await
     }
 
-    async fn move_to_tag(&self, request: Request<MoveToTagRequest>) -> TonicResult<()> {
+    async fn move_to_workspace(&self, request: Request<MoveToWorkspaceRequest>) -> TonicResult<()> {
         let request = request.into_inner();
 
         let window_id = WindowId(request.window_id);
-        let tag_id = TagId::new(request.tag_id);
+        let workspace_id = WorkspaceId::new(request.workspace_id);
 
         run_unary_no_response(&self.sender, move |state| {
-            let Some(tag) = tag_id.tag(&state.pinnacle) else { return };
+            let Some(workspace) = workspace_id.workspace(&state.pinnacle) else { return };
 
             if let Some(window) = window_id.window(&state.pinnacle) {
-                crate::api::window::move_to_tag(state, &window, &tag);
+                crate::api::window::move_to_workspace(state, &window, &workspace);
             } else if let Some(unmapped) = window_id.unmapped_window_mut(&mut state.pinnacle)
                 && let UnmappedState::WaitingForRules { rules, .. } = &mut unmapped.state
             {
-                rules.tags = Some([tag].into_iter().collect());
+                rules.workspaces = Some([workspace].into_iter().collect());
             }
         })
         .await
     }
 
-    async fn set_tag(&self, request: Request<SetTagRequest>) -> TonicResult<()> {
+    async fn set_workspace(&self, request: Request<SetWorkspaceRequest>) -> TonicResult<()> {
         let request = request.into_inner();
 
         let window_id = WindowId(request.window_id);
-        let tag_id = TagId::new(request.tag_id);
+        let workspace_id = WorkspaceId::new(request.workspace_id);
 
         let set_or_toggle = request.set_or_toggle();
 
@@ -637,67 +637,61 @@ impl v1::window_service_server::WindowService for super::WindowService {
         };
 
         run_unary_no_response(&self.sender, move |state| {
-            let Some(tag) = tag_id.tag(&state.pinnacle) else { return };
+            let Some(workspace) = workspace_id.workspace(&state.pinnacle) else { return };
 
             if let Some(window) = window_id.window(&state.pinnacle) {
-                crate::api::window::set_tag(state, &window, &tag, set);
+                crate::api::window::set_workspace(state, &window, &workspace, set);
             } else if let Some(unmapped) = window_id.unmapped_window_mut(&mut state.pinnacle)
                 && let UnmappedState::WaitingForRules { rules, .. } = &mut unmapped.state
             {
-                let tags = rules.tags.get_or_insert(Default::default());
-                match set {
-                    Some(true) => {
-                        tags.insert(tag.clone());
-                    }
-                    Some(false) => {
-                        tags.shift_remove(&tag);
-                    }
-                    None => {
-                        if tags.contains(&tag) {
-                            // Prevent toggling that would leave a window tagless
-                            if tags.len() > 1 {
-                                tags.shift_remove(&tag);
-                            }
-                        } else {
-                            tags.insert(tag.clone());
-                        }
-                    }
+                // A window is on exactly one workspace: setting one replaces the old.
+                let on_workspace = rules
+                    .workspaces
+                    .as_ref()
+                    .is_some_and(|workspaces| workspaces.contains(&workspace));
+                if set.unwrap_or(!on_workspace) && !on_workspace {
+                    rules.workspaces = Some([workspace].into_iter().collect());
                 }
             }
         })
         .await
     }
 
-    async fn set_tags(&self, request: Request<SetTagsRequest>) -> TonicResult<SetTagsResponse> {
+    async fn set_workspaces(&self, request: Request<SetWorkspacesRequest>) -> TonicResult<SetWorkspacesResponse> {
         let request = request.into_inner();
 
         let window_id = WindowId(request.window_id);
-        let tag_ids = request.tag_ids.into_iter().map(TagId::new);
+        let workspace_ids = request.workspace_ids.into_iter().map(WorkspaceId::new);
 
         run_unary(&self.sender, move |state| {
-            // Could possibly just filter instead of failing if any tag doesn't exist
-            let Some(tags) = tag_ids
+            // Could possibly just filter instead of failing if any workspace doesn't exist
+            let Some(workspaces) = workspace_ids
                 .into_iter()
-                .map(|tag_id| tag_id.tag(&state.pinnacle))
+                .map(|workspace_id| workspace_id.workspace(&state.pinnacle))
                 .collect::<Option<IndexSet<_>>>()
             else {
-                return Ok(SetTagsResponse {});
+                return Ok(SetWorkspacesResponse {});
             };
 
-            if tags.is_empty() {
-                warn!("Cannot set a windows tags to empty");
-                return Ok(SetTagsResponse {});
+            // A window is on exactly one workspace, so only the first one given is used.
+            let Some(workspace) = workspaces.first().cloned() else {
+                warn!("Cannot set a windows workspaces to empty");
+                return Ok(SetWorkspacesResponse {});
+            };
+
+            if workspaces.len() > 1 {
+                warn!("A window can only be on one workspace; using the first one given");
             }
 
             if let Some(window) = window_id.window(&state.pinnacle) {
-                window.with_state_mut(|state| state.tags = tags);
+                crate::api::window::move_to_workspace(state, &window, &workspace);
             } else if let Some(unmapped) = window_id.unmapped_window_mut(&mut state.pinnacle)
                 && let UnmappedState::WaitingForRules { rules, .. } = &mut unmapped.state
             {
-                rules.tags = Some(tags);
+                rules.workspaces = Some([workspace].into_iter().collect());
             }
 
-            Ok(SetTagsResponse {})
+            Ok(SetWorkspacesResponse {})
         })
         .await
     }
@@ -752,8 +746,8 @@ impl v1::window_service_server::WindowService for super::WindowService {
                 } else if let Some(unmapped) = window_id.unmapped_window_mut(&mut state.pinnacle)
                     && let UnmappedState::WaitingForRules { rules, .. } = &mut unmapped.state
                 {
-                    rules.tags = output
-                        .with_state(|s| Some(s.focused_tags().cloned().collect::<IndexSet<_>>()));
+                    rules.workspaces = output
+                        .with_state(|s| Some(s.focused_workspaces().take(1).cloned().collect::<IndexSet<_>>()));
                 }
             }
 

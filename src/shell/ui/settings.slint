@@ -1,0 +1,927 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+
+// The settings app, modelled on Android's on a tablet: a list of topics next to the
+// one that's open.
+
+import { Icons } from "icons.slint";
+import { Icon, Motion, Theme } from "theme.slint";
+import {
+    BluetoothItem, NetworkItem, PasswordPrompt, Row, Section, SinkItem, Slider, Switch,
+} from "quick_settings.slint";
+
+export enum SettingsPage {
+    network,
+    devices,
+    display,
+    style,
+    sound,
+    notifications,
+    battery,
+    about,
+}
+
+export struct TopicItem {
+    page: SettingsPage,
+    title: string,
+    subtitle: string,
+}
+
+export struct InfoItem {
+    title: string,
+    value: string,
+}
+
+export struct WallpaperItem {
+    path: string,
+    thumbnail: image,
+    active: bool,
+}
+
+export struct OutputItem {
+    name: string,
+    resolution: string,
+    scale: float,
+}
+
+global Sizes {
+    out property <length> padding: 16px;
+    out property <length> list-width: 300px;
+    out property <length> row-height: 56px;
+}
+
+component TopicRow {
+    in property <TopicItem> item;
+    in property <bool> active;
+    callback clicked();
+
+    property <[string]> icons: [
+        Icons.wifi, Icons.devices, Icons.display, Icons.palette,
+        Icons.volume-up, Icons.bell, Icons.battery-plus, Icons.info,
+    ];
+
+    height: 64px;
+
+    Rectangle {
+        y: 2px;
+        height: parent.height - 4px;
+        border-radius: self.height / 2;
+        background: active
+            ? Theme.accent.with-alpha(0.3)
+            : touch.has-hover ? Theme.on-surface.with-alpha(0.1) : transparent;
+
+        animate background {
+            duration: Motion.short;
+            easing: Motion.emphasized;
+        }
+    }
+
+    Rectangle {
+        x: 10px;
+        y: (parent.height - self.height) / 2;
+        width: 40px;
+        height: 40px;
+        border-radius: self.height / 2;
+        background: active ? Theme.accent : Theme.on-surface.with-alpha(0.12);
+
+        Icon {
+            x: 10px;
+            y: 10px;
+            size: 20px;
+            commands: icons[item.page == SettingsPage.network ? 0
+                : item.page == SettingsPage.devices ? 1
+                : item.page == SettingsPage.display ? 2
+                : item.page == SettingsPage.style ? 3
+                : item.page == SettingsPage.sound ? 4
+                : item.page == SettingsPage.notifications ? 5
+                : item.page == SettingsPage.battery ? 6
+                : 7];
+            fill: active ? Theme.on-primary : Theme.on-surface;
+        }
+    }
+
+    VerticalLayout {
+        x: 62px;
+        width: parent.width - self.x - 14px;
+        alignment: center;
+
+        Text {
+            text: item.title;
+            font-size: 14px;
+            font-weight: 600;
+            color: Theme.on-surface;
+            overflow: elide;
+        }
+
+        Text {
+            text: item.subtitle;
+            font-size: 12px;
+            color: Theme.on-surface-variant;
+            overflow: elide;
+        }
+    }
+
+    touch := TouchArea {
+        clicked => {
+            root.clicked();
+        }
+    }
+}
+
+// A card holding a group of settings.
+component Group inherits Rectangle {
+    border-radius: 24px;
+    background: Theme.on-surface.with-alpha(0.08);
+
+    VerticalLayout {
+        @children
+    }
+}
+
+component SwitchRow {
+    in property <string> title;
+    in property <string> subtitle;
+    in property <bool> on;
+    callback toggled();
+
+    height: Sizes.row-height;
+
+    VerticalLayout {
+        x: 16px;
+        width: parent.width - 90px;
+        alignment: center;
+
+        Text {
+            text: title;
+            font-size: 14px;
+            font-weight: 500;
+            color: Theme.on-surface;
+            overflow: elide;
+        }
+
+        if subtitle != "": Text {
+            text: subtitle;
+            font-size: 12px;
+            color: Theme.on-surface-variant;
+            overflow: elide;
+        }
+    }
+
+    Switch {
+        x: parent.width - self.width - 12px;
+        y: (parent.height - self.height) / 2;
+        on: on;
+        toggled => {
+            root.toggled();
+        }
+    }
+}
+
+component LabeledSlider {
+    in property <string> title;
+    in property <string> icon;
+    in property <float> value;
+    in property <bool> enabled: true;
+    callback changed(float);
+
+    VerticalLayout {
+        padding: 12px;
+        padding-left: 16px;
+        padding-right: 16px;
+        spacing: 10px;
+
+        Text {
+            text: title;
+            font-size: 14px;
+            font-weight: 500;
+            color: Theme.on-surface;
+        }
+
+        Slider {
+            icon: icon;
+            value: value;
+            enabled: enabled;
+            changed(value) => {
+                root.changed(value);
+            }
+        }
+    }
+}
+
+component Chip {
+    in property <string> text;
+    in property <bool> active;
+    callback clicked();
+
+    height: 34px;
+    min-width: label.preferred-width + 24px;
+
+    Rectangle {
+        border-radius: 12px;
+        background: active
+            ? Theme.accent
+            : Theme.on-surface.with-alpha(touch.has-hover ? 0.18 : 0.1);
+    }
+
+    label := Text {
+        text: text;
+        font-size: 12px;
+        font-weight: 600;
+        color: active ? Theme.on-primary : Theme.on-surface;
+    }
+
+    touch := TouchArea {
+        clicked => {
+            root.clicked();
+        }
+    }
+}
+
+export component SettingsApp inherits Window {
+    // Asked to be open. It stays on screen until it has animated away.
+    in property <bool> open;
+    in property <SettingsPage> page;
+    in property <[TopicItem]> topics;
+    out property <string> query: search.text;
+
+    in property <string> error;
+
+    in property <bool> wifi-enabled;
+    in property <[NetworkItem]> networks;
+    in property <bool> bluetooth-enabled;
+    in property <[BluetoothItem]> bluetooth-devices;
+
+    in property <float> brightness: -1;
+    in property <bool> dark;
+    in property <bool> night-light;
+    in property <bool> night-light-available;
+    in property <[OutputItem]> outputs;
+
+    in property <[WallpaperItem]> wallpapers;
+
+    in property <float> volume;
+    in property <bool> muted;
+    in property <[SinkItem]> sinks;
+    in property <bool> mic-muted;
+
+    in property <bool> do-not-disturb;
+    in property <int> notification-count;
+
+    in property <int> battery-percent: -1;
+    in property <string> battery-state;
+    in property <bool> power-saver;
+    in property <bool> power-saver-available;
+    in property <bool> stay-awake;
+
+    in property <[InfoItem]> about;
+
+    // How much of the panel is visible right now, for the blur behind it.
+    out property <length> panel-height: self.height * reveal;
+    out property <length> panel-radius: 28px;
+
+    callback closed();
+    callback query-changed(string);
+    callback page-chosen(SettingsPage);
+    callback wifi-toggled();
+    callback network-clicked(string);
+    callback network-forgotten(string);
+    callback password-entered(string, string);
+    callback bluetooth-toggled();
+    callback bluetooth-clicked(string);
+    callback brightness-changed(float);
+    callback dark-toggled();
+    callback night-light-toggled();
+    callback scale-chosen(string, float);
+    callback wallpaper-chosen(string);
+    callback volume-changed(float);
+    callback mute-toggled();
+    callback sink-chosen(string);
+    callback mic-toggled();
+    callback do-not-disturb-toggled();
+    callback notifications-cleared();
+    callback power-saver-toggled();
+    callback stay-awake-toggled();
+
+    public function focus-search() {
+        search.focus();
+    }
+
+    property <float> reveal: open ? 1 : 0;
+    property <[float]> scales: [1, 1.25, 1.5, 1.75, 2];
+    property <string> prompt-ssid;
+    property <string> forget-ssid;
+
+    animate reveal {
+        duration: Motion.long;
+        easing: Motion.emphasized;
+    }
+
+    function page-title() -> string {
+        if page == SettingsPage.network {
+            return "Network & internet";
+        }
+        if page == SettingsPage.devices {
+            return "Connected devices";
+        }
+        if page == SettingsPage.display {
+            return "Display";
+        }
+        if page == SettingsPage.style {
+            return "Wallpaper & style";
+        }
+        if page == SettingsPage.sound {
+            return "Sound";
+        }
+        if page == SettingsPage.notifications {
+            return "Notifications";
+        }
+        if page == SettingsPage.battery {
+            return "Battery";
+        }
+        return "About";
+    }
+
+    function signal-text(bars: int) -> string {
+        if bars >= 3 {
+            return "Strong signal";
+        }
+        return bars == 2 ? "Good signal" : "Weak signal";
+    }
+
+    function network-subtitle(network: NetworkItem) -> string {
+        if network.connecting {
+            return "Connecting…";
+        }
+        if network.active {
+            return "Connected, \{signal-text(network.bars)}";
+        }
+        if network.known {
+            return "Saved, \{signal-text(network.bars)}";
+        }
+        return (network.secured ? "Secured, " : "Open, ") + signal-text(network.bars);
+    }
+
+    function device-subtitle(device: BluetoothItem) -> string {
+        if device.connecting {
+            return "Connecting…";
+        }
+        if device.connected {
+            return device.battery >= 0 ? "Active, \{device.battery}% battery" : "Active";
+        }
+        return device.paired ? "Saved" : "Tap to pair";
+    }
+
+    function device-icon(name: string) -> string {
+        if name == "audio-headphones" || name == "audio-headset" || name == "audio-card" {
+            return Icons.headphones;
+        }
+        if name == "input-mouse" {
+            return Icons.mouse;
+        }
+        if name == "input-keyboard" {
+            return Icons.keyboard;
+        }
+        return Icons.devices;
+    }
+
+    background: transparent;
+    default-font-family: "Inter";
+
+    Rectangle {
+        y: 0;
+        height: panel-height;
+        clip: true;
+        border-radius: panel-radius;
+        // The shade over the blur, which is dark or light with the theme.
+        background: Theme.surface.with-alpha(0.72);
+        opacity: min(reveal * 2, 1);
+
+        TouchArea { }
+
+        // The topics.
+        Rectangle {
+            x: Sizes.padding;
+            y: Sizes.padding;
+            width: Sizes.list-width;
+            height: root.height - Sizes.padding * 2;
+
+            Text {
+                x: 8px;
+                y: 0;
+                height: 36px;
+                text: "Settings";
+                font-size: 22px;
+                font-weight: 500;
+                color: Theme.on-surface;
+                vertical-alignment: center;
+            }
+
+            Rectangle {
+                y: 44px;
+                height: 44px;
+                border-radius: self.height / 2;
+                background: Theme.on-surface.with-alpha(0.12);
+
+                Icon {
+                    x: 14px;
+                    y: (parent.height - self.height) / 2;
+                    size: 20px;
+                    commands: Icons.search;
+                    fill: Theme.on-surface-variant;
+                }
+
+                search := TextInput {
+                    x: 44px;
+                    width: parent.width - 58px;
+                    font-size: 13px;
+                    color: Theme.on-surface;
+                    vertical-alignment: center;
+                    single-line: true;
+                    edited => {
+                        root.query-changed(self.text);
+                    }
+                }
+
+                if search.text == "": Text {
+                    x: 44px;
+                    text: "Search Settings";
+                    font-size: 13px;
+                    color: Theme.on-surface-variant;
+                    vertical-alignment: center;
+                }
+            }
+
+            Flickable {
+                y: 96px;
+                height: parent.height - self.y;
+
+                VerticalLayout {
+                    alignment: start;
+
+                    for item in topics: TopicRow {
+                        item: item;
+                        active: page == item.page;
+                        clicked => {
+                            prompt-ssid = "";
+                            forget-ssid = "";
+                            root.page-chosen(item.page);
+                        }
+                    }
+
+                    if topics.length == 0: Text {
+                        height: 60px;
+                        text: "Nothing found";
+                        font-size: 13px;
+                        color: Theme.on-surface-variant;
+                        horizontal-alignment: center;
+                        vertical-alignment: center;
+                    }
+                }
+            }
+        }
+
+        // The open topic.
+        Rectangle {
+            x: Sizes.padding * 2 + Sizes.list-width;
+            y: Sizes.padding;
+            width: root.width - self.x - Sizes.padding;
+            height: root.height - Sizes.padding * 2;
+
+            Text {
+                x: 8px;
+                y: 0;
+                width: parent.width - 60px;
+                height: 40px;
+                text: page-title();
+                font-size: 22px;
+                font-weight: 500;
+                color: Theme.on-surface;
+                vertical-alignment: center;
+                overflow: elide;
+            }
+
+            Rectangle {
+                x: parent.width - self.width;
+                y: 2px;
+                width: 36px;
+                height: 36px;
+                border-radius: self.height / 2;
+                background: close-touch.has-hover ? Theme.on-surface.with-alpha(0.14) : transparent;
+
+                Icon {
+                    x: 8px;
+                    y: 8px;
+                    size: 20px;
+                    commands: Icons.close;
+                }
+
+                close-touch := TouchArea {
+                    clicked => {
+                        root.closed();
+                    }
+                }
+            }
+
+            if error != "": Text {
+                x: 8px;
+                y: 40px;
+                width: parent.width - 16px;
+                height: 18px;
+                text: error;
+                font-size: 12px;
+                color: Theme.error;
+                overflow: elide;
+            }
+
+            Flickable {
+                y: 60px;
+                height: parent.height - self.y;
+
+                VerticalLayout {
+                    alignment: start;
+                    spacing: 12px;
+
+                    if page == SettingsPage.network: Group {
+                        SwitchRow {
+                            title: "Wi-Fi";
+                            subtitle: wifi-enabled ? "On" : "Off";
+                            on: wifi-enabled;
+                            toggled => {
+                                root.wifi-toggled();
+                            }
+                        }
+                    }
+
+                    if page == SettingsPage.network && wifi-enabled: Group {
+                        VerticalLayout {
+                            padding: 6px;
+
+                            if networks.length == 0: Row {
+                                icon: Icons.wifi;
+                                title: "Looking for networks…";
+                            }
+
+                            for network in networks: VerticalLayout {
+                                Row {
+                                    icon: network.bars >= 3
+                                        ? Icons.wifi
+                                        : Icons.wifi-bars[max(network.bars, 1) - 1];
+                                    title: network.ssid;
+                                    subtitle: network-subtitle(network);
+                                    active: network.active;
+                                    // Forgetting takes a second click, shown by a check mark.
+                                    end-icon: network.known
+                                        ? forget-ssid == network.ssid ? Icons.check : Icons.close
+                                        : network.secured ? Icons.lock : "";
+                                    clicked => {
+                                        forget-ssid = "";
+                                        if network.secured && !network.known && !network.active {
+                                            prompt-ssid = prompt-ssid == network.ssid
+                                                ? ""
+                                                : network.ssid;
+                                        } else {
+                                            prompt-ssid = "";
+                                            root.network-clicked(network.ssid);
+                                        }
+                                    }
+                                    end-clicked => {
+                                        if network.known {
+                                            if forget-ssid == network.ssid {
+                                                forget-ssid = "";
+                                                root.network-forgotten(network.ssid);
+                                            } else {
+                                                forget-ssid = network.ssid;
+                                            }
+                                        }
+                                    }
+                                }
+
+                                if prompt-ssid == network.ssid: PasswordPrompt {
+                                    ssid: network.ssid;
+                                    init => {
+                                        self.focus-input();
+                                    }
+                                    submit(password) => {
+                                        root.password-entered(network.ssid, password);
+                                        prompt-ssid = "";
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    if page == SettingsPage.devices: Group {
+                        SwitchRow {
+                            title: "Bluetooth";
+                            subtitle: bluetooth-enabled ? "On" : "Off";
+                            on: bluetooth-enabled;
+                            toggled => {
+                                root.bluetooth-toggled();
+                            }
+                        }
+                    }
+
+                    if page == SettingsPage.devices && bluetooth-enabled: Group {
+                        VerticalLayout {
+                            padding: 6px;
+
+                            if bluetooth-devices.length == 0: Row {
+                                icon: Icons.bluetooth;
+                                title: "Looking for devices…";
+                            }
+
+                            for device[index] in bluetooth-devices: VerticalLayout {
+                                if index == 0 && device.paired: Section {
+                                    x: 12px;
+                                    text: "Saved devices";
+                                }
+
+                                if !device.paired
+                                    && (index == 0 || bluetooth-devices[index - 1].paired): Section {
+                                    x: 12px;
+                                    text: "Available devices";
+                                }
+
+                                Row {
+                                    icon: device-icon(device.icon);
+                                    title: device.name;
+                                    subtitle: device-subtitle(device);
+                                    active: device.connected;
+                                    clicked => {
+                                        root.bluetooth-clicked(device.id);
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    if page == SettingsPage.display && brightness >= 0: Group {
+                        LabeledSlider {
+                            title: "Brightness";
+                            icon: Icons.brightness;
+                            value: brightness;
+                            changed(value) => {
+                                root.brightness-changed(value);
+                            }
+                        }
+                    }
+
+                    if page == SettingsPage.display: Group {
+                        VerticalLayout {
+                            SwitchRow {
+                                title: "Dark theme";
+                                on: dark;
+                                toggled => {
+                                    root.dark-toggled();
+                                }
+                            }
+
+                            SwitchRow {
+                                title: "Night Light";
+                                subtitle: night-light-available ? "Warmer colors in the evening" : "Not on this display";
+                                on: night-light;
+                                toggled => {
+                                    root.night-light-toggled();
+                                }
+                            }
+                        }
+                    }
+
+                    if page == SettingsPage.display: VerticalLayout {
+                        spacing: 12px;
+
+                        for output in outputs: Group {
+                            VerticalLayout {
+                                padding: 14px;
+                                padding-left: 16px;
+                                spacing: 8px;
+
+                                Text {
+                                    text: output.name;
+                                    font-size: 14px;
+                                    font-weight: 500;
+                                    color: Theme.on-surface;
+                                }
+
+                                Text {
+                                    text: "\{output.resolution}, scaled to \{round(output.scale * 100)}%";
+                                    font-size: 12px;
+                                    color: Theme.on-surface-variant;
+                                }
+
+                                HorizontalLayout {
+                                    alignment: start;
+                                    spacing: 6px;
+
+                                    for scale in scales: Chip {
+                                        text: "\{round(scale * 100)}%";
+                                        active: abs(output.scale - scale) < 0.01;
+                                        clicked => {
+                                            root.scale-chosen(output.name, scale);
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    if page == SettingsPage.style && wallpapers.length == 0: Text {
+                        height: 40px;
+                        text: "Finding wallpapers in Pictures/Wallpapers…";
+                        font-size: 13px;
+                        color: Theme.on-surface-variant;
+                    }
+
+                    if page == SettingsPage.style: Rectangle {
+                        property <length> cell-width: (self.width - 12px) / 2;
+                        property <length> cell-height: self.cell-width * 9 / 16;
+
+                        height: ceil(wallpapers.length / 2) * (self.cell-height + 12px);
+
+                        for item[index] in wallpapers: Rectangle {
+                            x: (parent.cell-width + 12px) * mod(index, 2);
+                            y: (parent.cell-height + 12px) * floor(index / 2);
+                            width: parent.cell-width;
+                            height: parent.cell-height;
+                            border-radius: 20px;
+                            clip: true;
+                            border-width: item.active ? 3px : 0px;
+                            border-color: Theme.accent;
+                            background: Theme.on-surface.with-alpha(0.1);
+
+                            Image {
+                                width: 100%;
+                                height: 100%;
+                                source: item.thumbnail;
+                                image-fit: cover;
+                            }
+
+                            if item.active: Rectangle {
+                                x: parent.width - self.width - 8px;
+                                y: 8px;
+                                width: 28px;
+                                height: 28px;
+                                border-radius: self.height / 2;
+                                background: Theme.accent;
+
+                                Icon {
+                                    x: 6px;
+                                    y: 6px;
+                                    commands: Icons.check;
+                                    fill: Theme.on-primary;
+                                }
+                            }
+
+                            TouchArea {
+                                clicked => {
+                                    root.wallpaper-chosen(item.path);
+                                }
+                            }
+                        }
+                    }
+
+                    if page == SettingsPage.sound: Group {
+                        LabeledSlider {
+                            title: "Volume";
+                            icon: muted ? Icons.volume-off : Icons.volume-up;
+                            value: volume;
+                            enabled: !muted;
+                            changed(value) => {
+                                root.volume-changed(value);
+                            }
+                        }
+                    }
+
+                    if page == SettingsPage.sound: Group {
+                        VerticalLayout {
+                            SwitchRow {
+                                title: "Mute";
+                                on: muted;
+                                toggled => {
+                                    root.mute-toggled();
+                                }
+                            }
+
+                            SwitchRow {
+                                title: "Mute microphone";
+                                on: mic-muted;
+                                toggled => {
+                                    root.mic-toggled();
+                                }
+                            }
+                        }
+                    }
+
+                    if page == SettingsPage.sound: Group {
+                        VerticalLayout {
+                            padding: 6px;
+
+                            Section {
+                                x: 12px;
+                                text: "Play sound on";
+                            }
+
+                            for sink in sinks: Row {
+                                icon: sink.active ? Icons.volume-up : Icons.speaker;
+                                title: sink.description;
+                                active: sink.active;
+                                clicked => {
+                                    root.sink-chosen(sink.name);
+                                }
+                            }
+                        }
+                    }
+
+                    if page == SettingsPage.notifications: Group {
+                        SwitchRow {
+                            title: "Do Not Disturb";
+                            subtitle: "Only critical notifications pop up";
+                            on: do-not-disturb;
+                            toggled => {
+                                root.do-not-disturb-toggled();
+                            }
+                        }
+                    }
+
+                    if page == SettingsPage.notifications: Group {
+                        Row {
+                            icon: Icons.clear-all;
+                            title: "Clear all notifications";
+                            subtitle: notification-count == 1
+                                ? "1 notification"
+                                : "\{notification-count} notifications";
+                            clicked => {
+                                root.notifications-cleared();
+                            }
+                        }
+                    }
+
+                    if page == SettingsPage.battery && battery-percent >= 0: Group {
+                        VerticalLayout {
+                            padding: 16px;
+                            spacing: 2px;
+
+                            Text {
+                                text: "\{battery-percent}%";
+                                font-size: 34px;
+                                color: Theme.on-surface;
+                            }
+
+                            Text {
+                                text: battery-state;
+                                font-size: 13px;
+                                color: Theme.on-surface-variant;
+                            }
+                        }
+                    }
+
+                    if page == SettingsPage.battery: Group {
+                        VerticalLayout {
+                            SwitchRow {
+                                title: "Battery Saver";
+                                subtitle: power-saver-available ? "Slows the system to last longer" : "Not available";
+                                on: power-saver;
+                                toggled => {
+                                    root.power-saver-toggled();
+                                }
+                            }
+
+                            SwitchRow {
+                                title: "Stay awake";
+                                subtitle: "Keep the session from going idle";
+                                on: stay-awake;
+                                toggled => {
+                                    root.stay-awake-toggled();
+                                }
+                            }
+                        }
+                    }
+
+                    if page == SettingsPage.about: Group {
+                        VerticalLayout {
+                            padding: 6px;
+
+                            for item in about: VerticalLayout {
+                                padding: 10px;
+                                padding-left: 12px;
+
+                                Text {
+                                    text: item.title;
+                                    font-size: 13px;
+                                    font-weight: 600;
+                                    color: Theme.on-surface;
+                                }
+
+                                Text {
+                                    text: item.value;
+                                    font-size: 13px;
+                                    color: Theme.on-surface-variant;
+                                    wrap: word-wrap;
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}

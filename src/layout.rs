@@ -9,7 +9,6 @@ use std::{
 
 use indexmap::IndexSet;
 use smithay::{
-    desktop::layer_map_for_output,
     output::{Output, WeakOutput},
     reexports::wayland_protocols::xdg::shell::server::xdg_toplevel,
     utils::{Logical, Rectangle, Size},
@@ -22,7 +21,7 @@ use crate::{
     backend::Backend,
     output::OutputName,
     state::{Pinnacle, State, WithState},
-    tag::TagId,
+    workspace::WorkspaceId,
     util::transaction::{Location, PendingTransaction, TransactionBuilder},
     window::{UnmappingWindow, WindowElement},
 };
@@ -40,8 +39,7 @@ impl Pinnacle {
         };
 
         let (output_width, output_height) = {
-            let map = layer_map_for_output(output);
-            let zone = map.non_exclusive_zone();
+            let zone = crate::shell::usable_zone(output);
             (zone.size.w, zone.size.h)
         };
 
@@ -50,14 +48,14 @@ impl Pinnacle {
             .into_iter()
             .unzip();
 
-        let (windows_on_foc_tags, to_unmap) = output.with_state(|state| {
-            let focused_tags = state.focused_tags().cloned().collect::<IndexSet<_>>();
+        let (windows_on_foc_workspaces, to_unmap) = output.with_state(|state| {
+            let focused_workspaces = state.focused_workspaces().cloned().collect::<IndexSet<_>>();
             self.windows
                 .iter()
                 .filter(|win| win.output(self).as_ref() == Some(output))
                 .cloned()
                 .partition::<Vec<_>, _>(|win| {
-                    win.with_state(|state| state.tags.intersection(&focused_tags).next().is_some())
+                    win.with_state(|state| state.workspaces.intersection(&focused_workspaces).next().is_some())
                 })
         });
 
@@ -84,7 +82,7 @@ impl Pinnacle {
             }
         }
 
-        let tiled_windows = windows_on_foc_tags
+        let tiled_windows = windows_on_foc_workspaces
             .iter()
             .filter(|win| !win.is_x11_override_redirect())
             .filter(|win| {
@@ -99,7 +97,7 @@ impl Pinnacle {
             return;
         };
 
-        let non_exclusive_geo = layer_map_for_output(output).non_exclusive_zone();
+        let non_exclusive_geo = crate::shell::usable_zone(output);
 
         let spilled_windows = tiled_windows
             .clone()
@@ -343,7 +341,7 @@ pub struct LayoutInfo {
     pub request_id: LayoutRequestId,
     pub output_name: OutputName,
     pub window_count: u32,
-    pub tag_ids: Vec<TagId>,
+    pub workspace_ids: Vec<WorkspaceId>,
 }
 
 impl State {
@@ -376,9 +374,11 @@ impl State {
             let mut locs = HashMap::new();
 
             for transaction in transactions {
+                // Interactive resizes follow the pointer, so they don't animate.
+                let animate = !transaction.is_resize;
                 for (window, loc) in transaction.target_locs {
-                    if !window.is_on_active_tag() {
-                        warn!("Attempted to map a window without active tags");
+                    if !window.is_on_active_workspace() {
+                        warn!("Attempted to map a window without active workspaces");
                         continue;
                     }
 
@@ -412,11 +412,11 @@ impl State {
                         }
                     };
 
-                    locs.insert(window, loc);
+                    locs.insert(window, (loc, animate));
                 }
             }
 
-            for (window, loc) in locs {
+            for (window, (loc, animate)) in locs {
                 if let Some(surface) = window.x11_surface() {
                     let mut configure_loc = loc;
 
@@ -432,8 +432,22 @@ impl State {
                 // if the window moved out of an output, we want to get it first.
                 outputs.extend(self.pinnacle.space.outputs_for_element(&window));
 
+                let old_loc = self.pinnacle.space.element_location(&window);
+                let new_size = window.geometry().size;
+                let old_size = window.with_state_mut(|state| state.layout_size.replace(new_size));
+
                 self.pinnacle.space.map_element(window.clone(), loc, false);
                 outputs.extend(self.pinnacle.space.outputs_for_element(&window));
+
+                // Tiled windows glide to their new place and size. Windows that weren't shown
+                // before (new, or on a workspace being switched to) have no old place and just appear.
+                if animate
+                    && let Some(old_loc) = old_loc
+                    && let Some(old_size) = old_size
+                    && window.with_state(|state| state.layout_mode.is_tiled())
+                {
+                    window.start_move_animation((old_loc, old_size), (loc, new_size));
+                }
             }
         }
 
@@ -447,8 +461,8 @@ impl State {
         // Probably a better way to do this
         for win in self.pinnacle.windows.iter() {
             let is_tiled = win.with_state(|state| state.layout_mode.is_tiled());
-            let is_on_active_tag = win.is_on_active_tag();
-            if !is_tiled && is_on_active_tag && !self.pinnacle.space.elements().any(|w| w == win) {
+            let is_on_active_workspace = win.is_on_active_workspace();
+            if !is_tiled && is_on_active_workspace && !self.pinnacle.space.elements().any(|w| w == win) {
                 wins_to_update.push(win.clone());
             }
         }
@@ -471,19 +485,19 @@ impl Pinnacle {
             return;
         };
 
-        let windows_on_foc_tags = output.with_state(|state| {
-            let focused_tags = state.focused_tags().cloned().collect::<IndexSet<_>>();
+        let windows_on_foc_workspaces = output.with_state(|state| {
+            let focused_workspaces = state.focused_workspaces().cloned().collect::<IndexSet<_>>();
             self.windows
                 .iter()
                 .filter(|win| !win.is_x11_override_redirect())
                 .filter(|win| {
-                    win.with_state(|state| state.tags.intersection(&focused_tags).next().is_some())
+                    win.with_state(|state| state.workspaces.intersection(&focused_workspaces).next().is_some())
                 })
                 .cloned()
                 .collect::<Vec<_>>()
         });
 
-        let window_count = windows_on_foc_tags
+        let window_count = windows_on_foc_workspaces
             .iter()
             .filter(|win| {
                 win.with_state(|state| {
@@ -492,13 +506,13 @@ impl Pinnacle {
             })
             .count();
 
-        let tag_ids = output.with_state(|state| state.focused_tags().map(|tag| tag.id()).collect());
+        let workspace_ids = output.with_state(|state| state.focused_workspaces().map(|workspace| workspace.id()).collect());
 
         let _ = sender.send(LayoutInfo {
             request_id: id,
             output_name: OutputName(output.name()),
             window_count: window_count as u32,
-            tag_ids,
+            workspace_ids,
         });
     }
 }
@@ -562,7 +576,7 @@ impl State {
             return;
         }
 
-        if !window.is_on_active_tag() {
+        if !window.is_on_active_workspace() {
             return;
         }
 

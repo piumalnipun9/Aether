@@ -71,7 +71,7 @@ impl layout::v1::layout_service_server::LayoutService for super::LayoutService {
                                 request_id: info.request_id.to_inner(),
                                 output_name: info.output_name.0,
                                 window_count: info.window_count,
-                                tag_ids: info.tag_ids.into_iter().map(|id| id.to_inner()).collect(),
+                                workspace_ids: info.workspace_ids.into_iter().map(|id| id.to_inner()).collect(),
                             }))
                             .await
                             .is_err()

@@ -195,6 +195,10 @@ pub struct Pinnacle {
 
     /// The z-index stack, bottom to top
     pub z_index_stack: Vec<ZIndexElement>,
+    /// Snapshots of closed windows kept alive while they fade out.
+    pub closing_windows: Vec<std::rc::Rc<crate::window::UnmappingWindow>>,
+
+    pub shell: crate::shell::Shell,
 
     pub popup_manager: PopupManager,
 
@@ -229,10 +233,6 @@ pub struct Pinnacle {
     /// WlSurfaces with an attached idle inhibitor.
     pub idle_inhibiting_surfaces: HashSet<WlSurface>,
 
-    #[cfg(feature = "snowcap")]
-    pub snowcap_handle: Option<snowcap::SnowcapHandle>,
-    #[cfg(feature = "snowcap")]
-    pub snowcap_join_handle: Option<tokio::task::JoinHandle<()>>,
 
     pub cursor_shape_manager_state: CursorShapeManagerState,
     pub cursor_state: CursorState,
@@ -249,26 +249,19 @@ pub struct Pinnacle {
     pub cursor_capture_sessions: Vec<CursorSession>,
 }
 
-#[cfg(feature = "snowcap")]
-impl Drop for Pinnacle {
-    fn drop(&mut self) {
-        if let Some(signal) = self.snowcap_handle.take() {
-            signal.stop();
-        }
-    }
-}
 
 impl State {
     pub fn on_event_loop_cycle_completion(&mut self) {
         let _span = tracy_client::span!("State::on_event_loop_cycle_completion");
 
         self.notify_blocker_cleared();
+        self.process_shell_input();
         self.update_layout();
 
         self.update_keyboard_focus();
         self.pinnacle.fixup_z_layering();
         self.pinnacle.space.refresh();
-        self.pinnacle.update_window_tags();
+        self.pinnacle.update_window_workspaces();
         self.pinnacle.cursor_state.cleanup();
         self.pinnacle.popup_manager.cleanup();
         self.update_pointer_focus();
@@ -276,24 +269,13 @@ impl State {
         foreign_toplevel::refresh(self);
         ext_workspace::refresh(self);
         self.pinnacle.refresh_idle_inhibit();
+        self.refresh_shell();
 
         // TODO: Probably want to do this only after a redraw
         self.process_capture_sessions();
 
         self.backend.render_scheduled_outputs(&mut self.pinnacle);
 
-        #[cfg(feature = "snowcap")]
-        if self
-            .pinnacle
-            .snowcap_join_handle
-            .as_ref()
-            .is_some_and(|handle| handle.is_finished())
-        {
-            // If Snowcap is dead, the config has most likely crashed or will crash if it's used.
-            // The embedded config will also fail to start.
-            // We'll exit here so people aren't stuck in the compositor.
-            self.pinnacle.shutdown();
-        }
 
         self.pinnacle
             .display_handle
@@ -501,6 +483,9 @@ impl Pinnacle {
 
             output_focus_stack: OutputFocusStack::default(),
             z_index_stack: Vec::new(),
+            closing_windows: Vec::new(),
+
+            shell: Default::default(),
 
             config: Config::new(config_dir, cli),
 
@@ -536,10 +521,6 @@ impl Pinnacle {
 
             outputs: Default::default(),
 
-            #[cfg(feature = "snowcap")]
-            snowcap_handle: None,
-            #[cfg(feature = "snowcap")]
-            snowcap_join_handle: None,
 
             cursor_shape_manager_state: CursorShapeManagerState::new::<State>(&display_handle),
             cursor_state: CursorState::new(),
@@ -589,10 +570,6 @@ impl Pinnacle {
             warn!("failed to send shutdown signal to config");
         }
 
-        #[cfg(feature = "snowcap")]
-        if let Some(stop_signal) = self.snowcap_handle.take() {
-            stop_signal.stop();
-        }
     }
 
     pub fn send_frame_callbacks(&self, output: &Output, sequence: Option<FrameCallbackSequence>) {

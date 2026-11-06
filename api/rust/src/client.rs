@@ -6,7 +6,7 @@ use pinnacle_api_defs::pinnacle::{
     process::v1::process_service_client::ProcessServiceClient,
     render::v1::render_service_client::RenderServiceClient,
     signal::v1::signal_service_client::SignalServiceClient,
-    tag::v1::tag_service_client::TagServiceClient,
+    workspace::v1::workspace_service_client::WorkspaceServiceClient,
     v1::pinnacle_service_client::PinnacleServiceClient,
     window::v1::window_service_client::WindowServiceClient,
 };
@@ -21,7 +21,7 @@ static SIGNAL_STATE: Mutex<Option<SignalState>> = Mutex::const_new(None);
 pub struct Client {
     pinnacle: PinnacleServiceClient<Channel>,
     window: WindowServiceClient<Channel>,
-    tag: TagServiceClient<Channel>,
+    workspace: WorkspaceServiceClient<Channel>,
     output: OutputServiceClient<Channel>,
     input: InputServiceClient<Channel>,
     process: ProcessServiceClient<Channel>,
@@ -56,8 +56,8 @@ impl Client {
         Self::get().window.clone()
     }
 
-    pub fn tag() -> TagServiceClient<Channel> {
-        Self::get().tag.clone()
+    pub fn workspace() -> WorkspaceServiceClient<Channel> {
+        Self::get().workspace.clone()
     }
 
     pub fn output() -> OutputServiceClient<Channel> {
@@ -100,7 +100,7 @@ impl Client {
         Self {
             pinnacle: PinnacleServiceClient::new(channel.clone()),
             window: WindowServiceClient::new(channel.clone()),
-            tag: TagServiceClient::new(channel.clone()),
+            workspace: WorkspaceServiceClient::new(channel.clone()),
             output: OutputServiceClient::new(channel.clone()),
             input: InputServiceClient::new(channel.clone()),
             process: ProcessServiceClient::new(channel.clone()),

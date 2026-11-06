@@ -4,7 +4,7 @@ use std::sync::atomic::{AtomicU32, Ordering};
 
 use indexmap::IndexSet;
 use smithay::{
-    desktop::{WindowSurface, layer_map_for_output},
+    desktop::WindowSurface,
     reexports::wayland_protocols::xdg::{
         decoration::zv1::server::zxdg_toplevel_decoration_v1, shell::server::xdg_toplevel,
     },
@@ -18,7 +18,7 @@ use crate::{
     protocol::snowcap_decoration::Bounds,
     render::util::snapshot::WindowSnapshot,
     state::{Pinnacle, WithState},
-    tag::Tag,
+    workspace::Workspace,
     util::transaction::Transaction,
 };
 
@@ -378,8 +378,8 @@ impl LayoutMode {
 pub struct WindowElementState {
     /// The id of this window.
     pub id: WindowId,
-    /// What tags the window is currently on.
-    pub tags: IndexSet<Tag>,
+    /// What workspaces the window is currently on.
+    pub workspaces: IndexSet<Workspace>,
     pub layout_mode: LayoutMode,
     pub old_layout_mode: Option<LayoutMode>,
     pub minimized: bool,
@@ -401,6 +401,15 @@ pub struct WindowElementState {
     pub decoration_surfaces: Vec<DecorationSurface>,
 
     pub vrr_demand: Option<VrrDemand>,
+
+    /// Fade and scale-in when the window first appears.
+    pub open_animation: crate::animation::OpenAnimation,
+    /// Glide to a new place in the layout.
+    pub move_animation: Option<crate::animation::MoveAnimation>,
+    /// The size this window had when the layout last placed it, to animate resizes from.
+    pub layout_size: Option<Size<i32, Logical>>,
+    /// The compositor-drawn border.
+    pub border: crate::render::border::Border,
 }
 
 impl WindowElement {
@@ -555,7 +564,7 @@ impl Pinnacle {
         let layout_mode = window.with_state(|state| state.layout_mode);
 
         let Some(output) = window.output(self) else {
-            warn!("Tried to update layout mode of window with no tags");
+            warn!("Tried to update layout mode of window with no workspaces");
             return;
         };
 
@@ -579,10 +588,7 @@ impl Pinnacle {
                 window.set_pending_geo(size, loc);
             }
             LayoutModeKind::Maximized => {
-                let mut non_exclusive_geo = {
-                    let map = layer_map_for_output(&output);
-                    map.non_exclusive_zone()
-                };
+                let mut non_exclusive_geo = crate::shell::usable_zone(&output);
                 non_exclusive_geo.loc += output_geo.loc;
 
                 window.set_pending_geo(non_exclusive_geo.size, Some(non_exclusive_geo.loc));
@@ -655,7 +661,7 @@ impl WindowElementState {
     pub fn new() -> Self {
         Self {
             id: WindowId::next(),
-            tags: Default::default(),
+            workspaces: Default::default(),
             layout_mode: LayoutMode::new_tiled(),
             old_layout_mode: None,
             floating_x: Default::default(),
@@ -671,6 +677,10 @@ impl WindowElementState {
             foreign_toplevel_list_handle: None,
             decoration_surfaces: Vec::new(),
             vrr_demand: None,
+            open_animation: Default::default(),
+            move_animation: None,
+            layout_size: None,
+            border: Default::default(),
         }
     }
 

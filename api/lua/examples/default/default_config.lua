@@ -3,7 +3,7 @@ local Input = require("pinnacle.input")
 local Libinput = require("pinnacle.input.libinput")
 local Process = require("pinnacle.process")
 local Output = require("pinnacle.output")
-local Tag = require("pinnacle.tag")
+local Workspace = require("pinnacle.workspace")
 local Window = require("pinnacle.window")
 local Layout = require("pinnacle.layout")
 local Util = require("pinnacle.util")
@@ -285,11 +285,11 @@ Pinnacle.setup(function()
         -- `Layout.builtin` contains functions that create various layout generators.
         -- Each of these has settings that can be overridden by passing in a table with
         -- overriding options.
+        Layout.builtin.dwindle(),
         Layout.builtin.master_stack(),
         Layout.builtin.master_stack({ master_side = "right" }),
         Layout.builtin.master_stack({ master_side = "top" }),
         Layout.builtin.master_stack({ master_side = "bottom" }),
-        Layout.builtin.dwindle(),
         Layout.builtin.spiral(),
         Layout.builtin.corner(),
         Layout.builtin.corner({ corner_loc = "top_right" }),
@@ -303,15 +303,15 @@ Pinnacle.setup(function()
     -- Use the cycling layout generator to manage layout requests.
     -- This returns an object that allows you to request layouts manually.
     local layout_requester = Layout.manage(function(args)
-        local first_tag = args.tags[1]
-        if not first_tag then
+        local first_workspace = args.workspaces[1]
+        if not first_workspace then
             ---@type pinnacle.layout.LayoutResponse
             return {
                 root_node = {},
                 tree_id = 0,
             }
         end
-        layout_cycler.current_tag = first_tag
+        layout_cycler.current_workspace = first_workspace
         local root_node = layout_cycler:layout(args.window_count)
         local tree_id = layout_cycler:current_tree_id()
 
@@ -325,125 +325,125 @@ Pinnacle.setup(function()
     -- mod_key + space = Cycle forward one layout on the focused output
     --
     -- Yes, this is a bit verbose for my liking.
-    -- You need to cycle the layout on the first active tag
+    -- You need to cycle the layout on the first active workspace
     -- because that is the one that decides which layout is used.
     Input.keybind({ mod_key }, key.space, function()
         local focused_op = Output.get_focused()
         if focused_op then
-            local tags = focused_op:tags() or {}
-            local tag = nil
+            local workspaces = focused_op:workspaces() or {}
+            local workspace = nil
 
             ---@type (fun(): (boolean|nil))[]
-            local tag_actives = {}
-            for i, t in ipairs(tags) do
-                tag_actives[i] = function()
+            local workspace_actives = {}
+            for i, t in ipairs(workspaces) do
+                workspace_actives[i] = function()
                     return t:active()
                 end
             end
 
             -- We are batching API calls here for better performance
-            tag_actives = Util.batch(tag_actives)
+            workspace_actives = Util.batch(workspace_actives)
 
-            for i, active in ipairs(tag_actives) do
+            for i, active in ipairs(workspace_actives) do
                 if active then
-                    tag = tags[i]
+                    workspace = workspaces[i]
                     break
                 end
             end
 
-            if tag then
-                layout_cycler:cycle_layout_forward(tag)
+            if workspace then
+                layout_cycler:cycle_layout_forward(workspace)
                 layout_requester:request_layout(focused_op)
             end
         end
     end, {
         group = "Layout",
-        description = "Cycle the layout forward on the first active tag",
+        description = "Cycle the layout forward on the first active workspace",
     })
 
     -- mod_key + shift + space = Cycle backward one layout on the focused output
     Input.keybind({ mod_key, "shift" }, key.space, function()
         local focused_op = Output.get_focused()
         if focused_op then
-            local tags = focused_op:tags() or {}
-            local tag = nil
+            local workspaces = focused_op:workspaces() or {}
+            local workspace = nil
 
             ---@type (fun(): boolean)[]
-            local tag_actives = {}
-            for i, t in ipairs(tags) do
-                tag_actives[i] = function()
+            local workspace_actives = {}
+            for i, t in ipairs(workspaces) do
+                workspace_actives[i] = function()
                     return t:active()
                 end
             end
 
-            tag_actives = Util.batch(tag_actives)
+            workspace_actives = Util.batch(workspace_actives)
 
-            for i, active in ipairs(tag_actives) do
+            for i, active in ipairs(workspace_actives) do
                 if active then
-                    tag = tags[i]
+                    workspace = workspaces[i]
                     break
                 end
             end
 
-            if tag then
-                layout_cycler:cycle_layout_backward(tag)
+            if workspace then
+                layout_cycler:cycle_layout_backward(workspace)
                 layout_requester:request_layout(focused_op)
             end
         end
     end, {
         group = "Layout",
-        description = "Cycle the layout backward on the first active tag",
+        description = "Cycle the layout backward on the first active workspace",
     })
 
     ----------------------
-    -- Tags and Outputs --
+    -- Workspaces and Outputs --
     ----------------------
 
-    local tag_names = { "1", "2", "3", "4", "5", "6", "7", "8", "9" }
+    local workspace_names = { "1", "2", "3", "4", "5", "6", "7", "8", "9" }
 
     Output.for_each_output(function(output)
-        local tags = Tag.add(output, tag_names)
-        tags[1]:set_active(true)
+        local workspaces = Workspace.add(output, workspace_names)
+        workspaces[1]:set_active(true)
     end)
 
-    -- Tag keybinds
-    for _, tag_name in ipairs(tag_names) do
-        -- mod_key + 1-9 = Switch to tags 1-9
-        Input.keybind({ mod_key }, tag_name, function()
-            Tag.get(tag_name):switch_to()
+    -- Workspace keybinds
+    for _, workspace_name in ipairs(workspace_names) do
+        -- mod_key + 1-9 = Switch to workspaces 1-9
+        Input.keybind({ mod_key }, workspace_name, function()
+            Workspace.get(workspace_name):switch_to()
         end, {
-            group = "Tag",
-            description = "Switch to tag " .. tag_name,
+            group = "Workspace",
+            description = "Switch to workspace " .. workspace_name,
         })
 
-        -- mod_key + ctrl + 1-9 = Toggle tags 1-9
-        Input.keybind({ mod_key, "ctrl" }, tag_name, function()
-            Tag.get(tag_name):toggle_active()
+        -- mod_key + ctrl + 1-9 = Toggle workspaces 1-9
+        Input.keybind({ mod_key, "ctrl" }, workspace_name, function()
+            Workspace.get(workspace_name):toggle_active()
         end, {
-            group = "Tag",
-            description = "Toggle tag " .. tag_name,
+            group = "Workspace",
+            description = "Toggle workspace " .. workspace_name,
         })
 
-        -- mod_key + shift + 1-9 = Move window to tags 1-9
-        Input.keybind({ mod_key, "shift" }, tag_name, function()
+        -- mod_key + shift + 1-9 = Move window to workspaces 1-9
+        Input.keybind({ mod_key, "shift" }, workspace_name, function()
             local focused = Window.get_focused()
             if focused then
-                focused:move_to_tag(Tag.get(tag_name) --[[@as pinnacle.tag.TagHandle]])
+                focused:move_to_workspace(Workspace.get(workspace_name) --[[@as pinnacle.workspace.WorkspaceHandle]])
             end
         end, {
-            group = "Tag",
-            description = "Move the focused window to tag " .. tag_name,
+            group = "Workspace",
+            description = "Move the focused window to workspace " .. workspace_name,
         })
 
-        -- mod_key + ctrl + shift + 1-9 = Toggle tags 1-9 on window
-        Input.keybind({ mod_key, "ctrl", "shift" }, tag_name, function()
+        -- mod_key + ctrl + shift + 1-9 = Toggle workspaces 1-9 on window
+        Input.keybind({ mod_key, "ctrl", "shift" }, workspace_name, function()
             local focused = Window.get_focused()
             if focused then
-                focused:toggle_tag(Tag.get(tag_name) --[[@as pinnacle.tag.TagHandle]])
+                focused:toggle_workspace(Workspace.get(workspace_name) --[[@as pinnacle.workspace.WorkspaceHandle]])
             end
         end, {
-            group = "Tag",
-            description = "Toggle tag " .. tag_name .. " on the focused window",
+            group = "Workspace",
+            description = "Toggle workspace " .. workspace_name .. " on the focused window",
         })
     end
 
@@ -490,6 +490,6 @@ Pinnacle.setup(function()
         end,
     })
 
-    -- Spawning should happen after you add tags, as Pinnacle currently doesn't render windows without tags.
+    -- Spawning should happen after you add workspaces, as Pinnacle currently doesn't render windows without workspaces.
     Process.spawn_once(terminal)
 end)

@@ -8,6 +8,7 @@ use std::{any::Any, time::Duration};
 use crate::{
     api::signal::Signal as _,
     focus::pointer::{PointerContents, PointerFocusTarget},
+    shell::ShellSurface,
     state::{Pinnacle, WithState},
     window::WindowElement,
 };
@@ -192,22 +193,34 @@ impl Pinnacle {
         };
 
         // Input and rendering go, from top to bottom,
+        // - The shell's panels and notifications
         // - Popups
         // - Overlay layer surfaces
         // - All windows down to the bottom-most fullscreen window (this mimics Awesome)
+        // - The shell's bar
         // - Top layer surfaces
         // - The rest of the windows
         // - Bottom and background layer surfaces
 
-        let focus_under = layer_under(
-            &[
-                wlr_layer::Layer::Overlay,
-                wlr_layer::Layer::Top,
-                wlr_layer::Layer::Bottom,
-                wlr_layer::Layer::Background,
-            ],
-            WindowSurfaceType::POPUP,
-        )
+        let focus_under = self
+            .shell_surface_under(output, point)
+            .map(|(surface, location)| {
+                (
+                    PointerFocusTarget::Shell(output.downgrade(), surface),
+                    location,
+                )
+            })
+            .or_else(|| {
+                layer_under(
+                    &[
+                        wlr_layer::Layer::Overlay,
+                        wlr_layer::Layer::Top,
+                        wlr_layer::Layer::Bottom,
+                        wlr_layer::Layer::Background,
+                    ],
+                    WindowSurfaceType::POPUP,
+                )
+            })
         .or_else(|| window_under(&windows, WindowSurfaceType::POPUP))
         .or_else(|| {
             layer_under(
@@ -220,6 +233,14 @@ impl Pinnacle {
                 &windows[..fullscreen_and_up_split_at],
                 WindowSurfaceType::TOPLEVEL | WindowSurfaceType::SUBSURFACE,
             )
+        })
+        .or_else(|| {
+            self.bar_contains(output, point).then(|| {
+                (
+                    PointerFocusTarget::Shell(output.downgrade(), ShellSurface::Bar),
+                    output_geo.loc.to_f64(),
+                )
+            })
         })
         .or_else(|| {
             layer_under(
@@ -322,6 +343,33 @@ impl State {
             // TODO: rest of input events
             _ => (),
         }
+    }
+
+    /// Lets go of every key, for when we can't know about them being released anymore.
+    /// A modifier that stays held down would otherwise turn every click into a mousebind.
+    pub fn release_all_keys(&mut self) {
+        let Some(keyboard) = self.pinnacle.seat.get_keyboard() else {
+            return;
+        };
+
+        let time = Duration::from(self.pinnacle.clock.now()).as_millis() as u32;
+        for keycode in keyboard.pressed_keys() {
+            keyboard.input::<(), _>(
+                self,
+                keycode,
+                KeyState::Released,
+                SERIAL_COUNTER.next_serial(),
+                time,
+                |_, _, _| FilterResult::Forward,
+            );
+        }
+
+        self.pinnacle
+            .input_state
+            .bind_state
+            .keybinds
+            .last_pressed_triggered_binds
+            .clear();
     }
 
     /// Update the pointer focus if it's different from the previous one.
@@ -461,6 +509,17 @@ impl State {
                     return FilterResult::Intercept(KeyAction::SwitchVt(vt as i32));
                 }
 
+                state.on_key_for_launcher(
+                    keysym.modified_sym().raw(),
+                    press_state == KeyState::Pressed,
+                );
+
+                if press_state == KeyState::Pressed
+                    && state.on_launcher_shortcut(keysym.modified_sym().raw(), modifiers)
+                {
+                    return FilterResult::Intercept(KeyAction::Suppress);
+                }
+
                 let Some(raw_sym) = keysym.raw_latin_sym_or_raw_current_sym() else {
                     return FilterResult::Forward;
                 };
@@ -570,6 +629,16 @@ impl State {
         }
 
         if button_state == ButtonState::Pressed {
+            // Clicking anything but the shell closes its panels. The bar has to stay out
+            // of this, because it has the button that would open it again.
+            let on_shell = matches!(
+                self.pinnacle.pointer_contents.focus_under,
+                Some((PointerFocusTarget::Shell(..), _))
+            );
+            if !on_shell {
+                self.close_panels();
+            }
+
             let output_under = self
                 .pinnacle
                 .space

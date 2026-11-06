@@ -1,0 +1,626 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+
+// The panel the clock in the bar opens: notifications next to the time, a calendar and
+// what's playing. Like quick settings, it's on top of a blurred copy of what's behind it.
+
+import { Icons } from "icons.slint";
+import { Icon, Motion, Theme } from "theme.slint";
+
+export struct NotificationItem {
+    id: int,
+    app: string,
+    // The first letter of the app's name, which stands in for its icon.
+    initial: string,
+    summary: string,
+    body: string,
+    time: string,
+    critical: bool,
+}
+
+export struct DayItem {
+    day: int,
+    today: bool,
+    // Otherwise, it's in the month before or after the one being shown.
+    in-month: bool,
+}
+
+global Sizes {
+    out property <length> padding: 16px;
+    out property <length> gap: 16px;
+    out property <length> right-width: 308px;
+    out property <length> day-size: 44px;
+    out property <length> day-height: 32px;
+    out property <length> media-height: 136px;
+}
+
+component RoundButton {
+    in property <string> icon;
+    in property <length> size: 36px;
+    in property <length> icon-size: 20px;
+    in property <bool> enabled: true;
+    in property <bool> filled;
+    callback clicked();
+
+    width: size;
+    height: size;
+
+    Rectangle {
+        border-radius: filled ? 14px : self.height / 2;
+        background: filled
+            ? Theme.accent
+            : touch.has-hover && enabled ? Theme.on-surface.with-alpha(0.12) : transparent;
+    }
+
+    Icon {
+        x: (parent.width - self.width) / 2;
+        y: (parent.height - self.height) / 2;
+        size: icon-size;
+        commands: icon;
+        fill: filled ? Theme.on-primary : Theme.on-surface.with-alpha(enabled ? 1 : 0.4);
+    }
+
+    touch := TouchArea {
+        enabled: enabled;
+        clicked => {
+            root.clicked();
+        }
+    }
+}
+
+// How far a track has played, which can be clicked to go somewhere else in it.
+component Progress {
+    in property <float> value;
+    callback seek(float);
+
+    property <float> dragged;
+    // Players take a moment to report where they went.
+    property <bool> settling;
+    property <float> shown: touch.pressed || settling ? dragged : value;
+
+    height: 16px;
+
+    changed value => {
+        if abs(value - dragged) < 0.03 {
+            settling = false;
+        }
+    }
+
+    Timer {
+        interval: 2500ms;
+        running: settling && !touch.pressed;
+        triggered => {
+            settling = false;
+        }
+    }
+
+    Rectangle {
+        x: 0;
+        y: (parent.height - self.height) / 2;
+        width: parent.width;
+        height: 4px;
+        border-radius: 2px;
+        background: Theme.on-surface.with-alpha(0.2);
+    }
+
+    Rectangle {
+        x: 0;
+        y: (parent.height - self.height) / 2;
+        width: parent.width * clamp(shown, 0, 1);
+        height: 4px;
+        border-radius: 2px;
+        background: Theme.accent;
+    }
+
+    touch := TouchArea {
+        function update() {
+            root.dragged = clamp(self.mouse-x / root.width, 0, 1);
+        }
+        pointer-event(event) => {
+            if event.kind == PointerEventKind.down {
+                self.update();
+            }
+            if event.kind == PointerEventKind.up {
+                root.settling = true;
+                root.seek(root.dragged);
+            }
+        }
+        moved => {
+            self.update();
+        }
+    }
+}
+
+export component NotificationCard {
+    in property <NotificationItem> item;
+    // Popping up over windows, it can't be see-through.
+    in property <bool> solid;
+    callback clicked();
+    callback dismissed();
+
+    height: layout.preferred-height;
+
+    Rectangle {
+        border-radius: 20px;
+        background: solid
+            ? Theme.surface.mix(Theme.on-surface, touch.has-hover ? 0.86 : 0.93)
+            : Theme.on-surface.with-alpha(touch.has-hover ? 0.18 : 0.11);
+
+        animate background {
+            duration: Motion.short;
+            easing: Motion.emphasized;
+        }
+    }
+
+    touch := TouchArea {
+        clicked => {
+            root.clicked();
+        }
+    }
+
+    layout := HorizontalLayout {
+        padding: 12px;
+        spacing: 12px;
+
+        Rectangle {
+            width: 36px;
+            height: 36px;
+            border-radius: self.height / 2;
+            background: item.critical ? Theme.error : Theme.accent;
+
+            Text {
+                text: item.initial;
+                font-size: 15px;
+                font-weight: 600;
+                color: Theme.on-primary;
+            }
+        }
+
+        VerticalLayout {
+            spacing: 2px;
+
+            HorizontalLayout {
+                spacing: 6px;
+
+                Text {
+                    horizontal-stretch: 0;
+                    text: item.app;
+                    font-size: 11px;
+                    color: Theme.on-surface-variant;
+                    overflow: elide;
+                }
+
+                Text {
+                    horizontal-stretch: 0;
+                    text: item.time;
+                    font-size: 11px;
+                    color: Theme.on-surface-variant;
+                }
+
+                // Keeps these together and clear of the close button.
+                Rectangle {
+                    horizontal-stretch: 1;
+                    min-width: 24px;
+                }
+            }
+
+            Text {
+                text: item.summary;
+                font-size: 13px;
+                font-weight: 600;
+                color: Theme.on-surface;
+                overflow: elide;
+            }
+
+            if item.body != "": Text {
+                text: item.body;
+                font-size: 12px;
+                color: Theme.on-surface-variant;
+                wrap: word-wrap;
+                max-height: 48px;
+                overflow: elide;
+            }
+        }
+    }
+
+    RoundButton {
+        x: parent.width - self.width - 6px;
+        y: 6px;
+        size: 28px;
+        icon-size: 16px;
+        icon: Icons.close;
+        clicked => {
+            root.dismissed();
+        }
+    }
+}
+
+export component ClockPanel inherits Window {
+    // Asked to be open. It stays on screen until it has animated away.
+    in property <bool> open;
+
+    in property <string> time;
+    in property <string> date;
+
+    in property <string> month;
+    in property <[DayItem]> days;
+
+    in property <[NotificationItem]> notifications;
+    in property <bool> do-not-disturb;
+
+    in property <bool> has-media;
+    in property <string> media-title;
+    in property <string> media-artist;
+    in property <bool> media-playing;
+    in property <float> media-progress: -1;
+    in property <bool> has-media-art;
+    in property <image> media-art;
+
+    // How much of the panel is visible right now, for the blur behind it.
+    out property <length> panel-height: target-height * reveal;
+    out property <length> panel-radius: 28px;
+
+    callback month-changed(int);
+    callback today-clicked();
+    callback notification-clicked(int);
+    callback notification-dismissed(int);
+    callback cleared();
+    callback do-not-disturb-toggled();
+    callback media-play-pause();
+    callback media-previous();
+    callback media-next();
+    callback media-seek(float);
+
+    property <float> reveal: open ? 1 : 0;
+    property <length> left-width: self.width - Sizes.padding * 2 - Sizes.gap - Sizes.right-width;
+    property <length> clock-height: 72px;
+    property <length> calendar-height: 40px + 22px + Sizes.day-height * 6;
+    property <length> target-height: Sizes.padding * 2 + clock-height + calendar-height
+        + (has-media ? Sizes.media-height + 12px : 0px);
+
+    animate reveal {
+        duration: Motion.long;
+        easing: Motion.emphasized;
+    }
+
+    animate target-height {
+        duration: Motion.medium;
+        easing: Motion.emphasized;
+    }
+
+    background: transparent;
+    default-font-family: "Inter";
+
+    Rectangle {
+        y: 0;
+        height: panel-height;
+        clip: true;
+        border-radius: panel-radius;
+        // The shade over the blur, which is dark or light with the theme.
+        background: Theme.surface.with-alpha(0.6);
+        opacity: min(reveal * 2, 1);
+
+        // Clicks here shouldn't reach what's behind the panel's empty parts.
+        TouchArea { }
+
+        // Notifications.
+        Rectangle {
+            x: Sizes.padding;
+            y: Sizes.padding;
+            width: left-width;
+            height: target-height - Sizes.padding * 2;
+
+            Text {
+                x: 4px;
+                y: 0;
+                height: 36px;
+                text: "Notifications";
+                font-size: 15px;
+                font-weight: 600;
+                color: Theme.on-surface;
+                vertical-alignment: center;
+            }
+
+            if notifications.length > 0: RoundButton {
+                x: parent.width - self.width * 2 - 2px;
+                y: 0;
+                icon: Icons.clear-all;
+                clicked => {
+                    root.cleared();
+                }
+            }
+
+            RoundButton {
+                x: parent.width - self.width;
+                y: 0;
+                icon: do-not-disturb ? Icons.bell-off : Icons.bell;
+                filled: do-not-disturb;
+                clicked => {
+                    root.do-not-disturb-toggled();
+                }
+            }
+
+            if notifications.length == 0: VerticalLayout {
+                y: 44px;
+                height: parent.height - 44px;
+                alignment: center;
+                spacing: 10px;
+
+                Rectangle {
+                    height: 36px;
+
+                    Icon {
+                        size: 36px;
+                        commands: do-not-disturb ? Icons.bell-off : Icons.bell;
+                        fill: Theme.on-surface-variant;
+                    }
+                }
+
+                Text {
+                    text: do-not-disturb ? "Do Not Disturb is on" : "No notifications";
+                    font-size: 13px;
+                    color: Theme.on-surface-variant;
+                    horizontal-alignment: center;
+                }
+            }
+
+            Flickable {
+                y: 44px;
+                width: parent.width;
+                height: parent.height - 44px;
+
+                VerticalLayout {
+                    alignment: start;
+                    spacing: 8px;
+
+                    for item in notifications: NotificationCard {
+                        item: item;
+                        clicked => {
+                            root.notification-clicked(item.id);
+                        }
+                        dismissed => {
+                            root.notification-dismissed(item.id);
+                        }
+                    }
+                }
+            }
+        }
+
+        // The time.
+        VerticalLayout {
+            x: root.width - Sizes.padding - Sizes.right-width;
+            y: Sizes.padding;
+            width: Sizes.right-width;
+            height: clock-height - 8px;
+            alignment: start;
+
+            Text {
+                text: time;
+                font-size: 38px;
+                font-weight: 400;
+                color: Theme.on-surface;
+                horizontal-alignment: center;
+            }
+
+            Text {
+                text: date;
+                font-size: 13px;
+                color: Theme.on-surface-variant;
+                horizontal-alignment: center;
+            }
+        }
+
+        // The calendar.
+        Rectangle {
+            x: root.width - Sizes.padding - Sizes.right-width;
+            y: Sizes.padding + clock-height;
+            width: Sizes.right-width;
+            height: calendar-height;
+
+            RoundButton {
+                x: 0;
+                y: 0;
+                icon: Icons.chevron-left;
+                clicked => {
+                    root.month-changed(-1);
+                }
+            }
+
+            Text {
+                x: 40px;
+                y: 0;
+                width: parent.width - 80px;
+                height: 36px;
+                text: month;
+                font-size: 14px;
+                font-weight: 600;
+                color: Theme.on-surface;
+                horizontal-alignment: center;
+                vertical-alignment: center;
+
+                TouchArea {
+                    clicked => {
+                        root.today-clicked();
+                    }
+                }
+            }
+
+            RoundButton {
+                x: parent.width - self.width;
+                y: 0;
+                icon: Icons.chevron-right;
+                clicked => {
+                    root.month-changed(1);
+                }
+            }
+
+            for name[index] in ["S", "M", "T", "W", "T", "F", "S"]: Text {
+                x: Sizes.day-size * index;
+                y: 40px;
+                width: Sizes.day-size;
+                height: 20px;
+                text: name;
+                font-size: 11px;
+                font-weight: 600;
+                color: Theme.on-surface-variant;
+                horizontal-alignment: center;
+                vertical-alignment: center;
+            }
+
+            for item[index] in days: Rectangle {
+                x: Sizes.day-size * mod(index, 7);
+                y: 62px + Sizes.day-height * floor(index / 7);
+                width: Sizes.day-size;
+                height: Sizes.day-height;
+
+                if item.today: Rectangle {
+                    width: 30px;
+                    height: 30px;
+                    border-radius: self.height / 2;
+                    background: Theme.accent;
+                }
+
+                Text {
+                    text: item.day;
+                    font-size: 12px;
+                    font-weight: item.today ? 600 : 400;
+                    color: item.today
+                        ? Theme.on-primary
+                        : item.in-month
+                            ? Theme.on-surface
+                            : Theme.on-surface-variant.with-alpha(0.5);
+                }
+            }
+        }
+
+        // What's playing.
+        if has-media: Rectangle {
+            x: root.width - Sizes.padding - Sizes.right-width;
+            y: Sizes.padding + clock-height + calendar-height + 12px;
+            width: Sizes.right-width;
+            height: Sizes.media-height;
+            border-radius: 24px;
+            background: Theme.on-surface.with-alpha(0.11);
+
+            Rectangle {
+                x: 12px;
+                y: 12px;
+                width: 64px;
+                height: 64px;
+                border-radius: 16px;
+                clip: true;
+                background: Theme.on-surface.with-alpha(0.14);
+
+                if has-media-art: Image {
+                    width: 100%;
+                    height: 100%;
+                    source: media-art;
+                    image-fit: cover;
+                }
+
+                if !has-media-art: Icon {
+                    size: 28px;
+                    commands: Icons.music;
+                }
+            }
+
+            VerticalLayout {
+                x: 88px;
+                y: 12px;
+                width: parent.width - self.x - 12px;
+                height: 64px;
+                alignment: center;
+                spacing: 2px;
+
+                Text {
+                    text: media-title;
+                    font-size: 14px;
+                    font-weight: 600;
+                    color: Theme.on-surface;
+                    overflow: elide;
+                }
+
+                Text {
+                    text: media-artist;
+                    font-size: 12px;
+                    color: Theme.on-surface-variant;
+                    overflow: elide;
+                }
+            }
+
+            if media-progress >= 0: Progress {
+                x: 14px;
+                y: 88px;
+                width: 150px;
+                value: media-progress;
+                seek(position) => {
+                    root.media-seek(position);
+                }
+            }
+
+            HorizontalLayout {
+                x: parent.width - 138px;
+                y: 84px;
+                width: 126px;
+                height: 40px;
+                alignment: end;
+                spacing: 4px;
+
+                RoundButton {
+                    y: 2px;
+                    icon: Icons.previous;
+                    clicked => {
+                        root.media-previous();
+                    }
+                }
+
+                RoundButton {
+                    size: 40px;
+                    filled: true;
+                    icon: media-playing ? Icons.pause : Icons.play;
+                    clicked => {
+                        root.media-play-pause();
+                    }
+                }
+
+                RoundButton {
+                    y: 2px;
+                    icon: Icons.next;
+                    clicked => {
+                        root.media-next();
+                    }
+                }
+            }
+        }
+    }
+}
+
+// Notifications as they come in.
+export component Toasts inherits Window {
+    in property <[NotificationItem]> toasts;
+
+    // How much of the window has something in it.
+    out property <length> content-height: layout.preferred-height;
+
+    callback clicked(int);
+    callback dismissed(int);
+
+    background: transparent;
+    default-font-family: "Inter";
+
+    layout := VerticalLayout {
+        y: 0;
+        alignment: start;
+        spacing: 8px;
+
+        for item in toasts: NotificationCard {
+            item: item;
+            solid: true;
+            clicked => {
+                root.clicked(item.id);
+            }
+            dismissed => {
+                root.dismissed(item.id);
+            }
+        }
+    }
+}

@@ -19,7 +19,7 @@ use crate::{
     config::ConnectorSavedState,
     protocol::screencopy::Screencopy,
     state::{Pinnacle, State, WithState},
-    tag::Tag,
+    workspace::Workspace,
     util::centered_loc,
 };
 
@@ -58,8 +58,8 @@ pub enum BlankingState {
 /// The state of an output
 #[derive(Debug)]
 pub struct OutputState {
-    /// The tags on this output.
-    pub tags: IndexSet<Tag>,
+    /// The workspaces on this output.
+    pub workspaces: IndexSet<Workspace>,
 
     pub enabled_global_id: Option<GlobalId>,
 
@@ -69,19 +69,39 @@ pub struct OutputState {
     pub blanking_state: BlankingState,
     /// Whether the monitor is powered.
     ///
-    /// Unpowered monitors aren't drawn to but their tags and windows
+    /// Unpowered monitors aren't drawn to but their workspaces and windows
     /// still exist and can be interacted with.
     pub powered: bool,
     /// Damage tracker for debugging damage.
     pub debug_damage_tracker: OutputDamageTracker,
     pub is_vrr_on: bool,
     pub is_vrr_on_demand: bool,
+    /// The workspace switch animation running on this output, if any.
+    pub workspace_switch: Option<crate::animation::WorkspaceSwitch>,
+    /// Colors for window borders on this output.
+    pub border_colors: crate::render::border::BorderColors,
+
+    /// This output's top bar.
+    pub bar: Option<crate::shell::OutputBar>,
+    /// Quick settings, while it's on screen.
+    pub panel: Option<crate::shell::OutputPanel>,
+    /// The clock panel, while it's on screen.
+    pub clock: Option<crate::shell::OutputClock>,
+    /// Notifications popping up.
+    pub toasts: Option<crate::shell::OutputToasts>,
+    /// The app launcher, while it's on screen.
+    pub launcher: Option<crate::shell::OutputLauncher>,
+    /// The settings app, while it's on screen.
+    pub settings: Option<crate::shell::OutputSettings>,
+
+    /// This output's wallpaper.
+    pub wallpaper: Option<crate::shell::OutputWallpaper>,
 }
 
 impl Default for OutputState {
     fn default() -> Self {
         Self {
-            tags: Default::default(),
+            workspaces: Default::default(),
             enabled_global_id: Default::default(),
             screencopies: Default::default(),
             modes: Default::default(),
@@ -95,6 +115,15 @@ impl Default for OutputState {
             ),
             is_vrr_on: false,
             is_vrr_on_demand: false,
+            workspace_switch: None,
+            border_colors: Default::default(),
+            bar: None,
+            panel: None,
+            clock: None,
+            toasts: None,
+            launcher: None,
+            settings: None,
+            wallpaper: None,
         }
     }
 }
@@ -130,25 +159,25 @@ impl WithState for Output {
 }
 
 impl OutputState {
-    pub fn focused_tags(&self) -> impl Iterator<Item = &Tag> {
-        let _span = tracy_client::span!("OutputState::focused_tags");
+    pub fn focused_workspaces(&self) -> impl Iterator<Item = &Workspace> {
+        let _span = tracy_client::span!("OutputState::focused_workspaces");
 
-        self.tags.iter().filter(|tag| tag.active())
+        self.workspaces.iter().filter(|workspace| workspace.active())
     }
 
-    /// Add tags to this output, replacing defunct ones first.
-    pub fn add_tags(&mut self, tags: impl IntoIterator<Item = Tag>) {
-        let defunct_tags = self.tags.iter().skip_while(|tag| !tag.defunct());
-        let mut new_tags = tags.into_iter();
+    /// Add workspaces to this output, replacing defunct ones first.
+    pub fn add_workspaces(&mut self, workspaces: impl IntoIterator<Item = Workspace>) {
+        let defunct_workspaces = self.workspaces.iter().skip_while(|workspace| !workspace.defunct());
+        let mut new_workspaces = workspaces.into_iter();
 
-        for defunct_tag in defunct_tags {
-            let Some(new_tag) = new_tags.next() else {
+        for defunct_workspace in defunct_workspaces {
+            let Some(new_workspace) = new_workspaces.next() else {
                 return;
             };
-            defunct_tag.replace(new_tag);
+            defunct_workspace.replace(new_workspace);
         }
 
-        self.tags.extend(new_tags);
+        self.workspaces.extend(new_workspaces);
     }
 }
 
@@ -332,7 +361,7 @@ impl Pinnacle {
                 OutputName(output.name()),
                 ConnectorSavedState {
                     loc: output.current_location(),
-                    tags: output.with_state(|state| state.tags.clone()),
+                    workspaces: output.with_state(|state| state.workspaces.clone()),
                     scale: Some(output.current_scale()),
                     powered: Some(output.with_state(|state| state.powered)),
                 },
@@ -382,7 +411,7 @@ impl Pinnacle {
             OutputName(output.name()),
             ConnectorSavedState {
                 loc: output.current_location(),
-                tags: output.with_state(|state| state.tags.clone()),
+                workspaces: output.with_state(|state| state.workspaces.clone()),
                 scale: Some(output.current_scale()),
                 powered: Some(output.with_state(|state| state.powered)),
             },

@@ -113,15 +113,15 @@ end
 --- 2. Call `for_each` with any newly connected outputs.
 ---
 --- Note that `for_each` will *not* run with outputs that have been unplugged and replugged.
---- This is to prevent duplicate setup. Instead, the compositor keeps track of any tags and
+--- This is to prevent duplicate setup. Instead, the compositor keeps track of any workspaces and
 --- state the output had when unplugged and restores them on replug. This may change in the future.
 ---
 ---#### Example
 ---```lua
---- -- Add tags "1" through "5" to all outputs
+--- -- Add workspaces "1" through "5" to all outputs
 ---require("pinnacle.output").for_each_output(function(output)
----    local tags = Tag.add(output, "1", "2", "3", "4", "5")
----    tags[1]:toggle_active()
+---    local workspaces = Workspace.add(output, "1", "2", "3", "4", "5")
+---    workspaces[1]:toggle_active()
 ---end)
 ---```
 ---
@@ -767,74 +767,74 @@ function OutputHandle:focused()
     return response and response.focused or false
 end
 
----Gets the tags this output has.
+---Gets the workspaces this output has.
 ---
----@return pinnacle.tag.TagHandle[]
-function OutputHandle:tags()
+---@return pinnacle.workspace.WorkspaceHandle[]
+function OutputHandle:workspaces()
     local response, err =
-        client:pinnacle_output_v1_OutputService_GetTagIds({ output_name = self.name })
+        client:pinnacle_output_v1_OutputService_GetWorkspaceIds({ output_name = self.name })
 
-    local tag_ids = response and response.tag_ids or {}
+    local workspace_ids = response and response.workspace_ids or {}
 
-    local handles = require("pinnacle.tag").handle.new_from_table(tag_ids)
+    local handles = require("pinnacle.workspace").handle.new_from_table(workspace_ids)
 
     return handles
 end
 
----Gets the active tags this output has.
+---Gets the active workspaces this output has.
 ---
----@return pinnacle.tag.TagHandle[]
-function OutputHandle:active_tags()
-    local tags = self:tags()
+---@return pinnacle.workspace.WorkspaceHandle[]
+function OutputHandle:active_workspaces()
+    local workspaces = self:workspaces()
 
     ---@type (fun(): boolean)[]
     local batch = {}
-    for i, tag in ipairs(tags) do
+    for i, workspace in ipairs(workspaces) do
         batch[i] = function()
-            return tag:active()
+            return workspace:active()
         end
     end
 
     local responses = require("pinnacle.util").batch(batch)
 
-    ---@type pinnacle.tag.TagHandle[]
-    local active_tags = {}
+    ---@type pinnacle.workspace.WorkspaceHandle[]
+    local active_workspaces = {}
 
     for i, is_active in ipairs(responses) do
         if is_active then
-            table.insert(active_tags, tags[i])
+            table.insert(active_workspaces, workspaces[i])
         end
     end
 
-    return active_tags
+    return active_workspaces
 end
 
----Gets the inactive tags this output has.
+---Gets the inactive workspaces this output has.
 ---
----@return pinnacle.tag.TagHandle[]
-function OutputHandle:inactive_tags()
-    local tags = self:tags()
+---@return pinnacle.workspace.WorkspaceHandle[]
+function OutputHandle:inactive_workspaces()
+    local workspaces = self:workspaces()
 
     ---@type (fun(): boolean)[]
     local batch = {}
-    for i, tag in ipairs(tags) do
+    for i, workspace in ipairs(workspaces) do
         batch[i] = function()
-            return not tag:active()
+            return not workspace:active()
         end
     end
 
     local responses = require("pinnacle.util").batch(batch)
 
-    ---@type pinnacle.tag.TagHandle[]
-    local inactive_tags = {}
+    ---@type pinnacle.workspace.WorkspaceHandle[]
+    local inactive_workspaces = {}
 
     for i, is_active in ipairs(responses) do
         if is_active then
-            table.insert(inactive_tags, tags[i])
+            table.insert(inactive_workspaces, workspaces[i])
         end
     end
 
-    return inactive_tags
+    return inactive_workspaces
 end
 
 ---Get this output's scale.
@@ -890,7 +890,7 @@ end
 
 ---Gets this output's keyboard focus stack.
 ---
----This includes *all* windows on the output, even those on inactive tags.
+---This includes *all* windows on the output, even those on inactive workspaces.
 ---If you only want visible windows, use `keyboard_focus_stack_visible` instead.
 ---
 ---@return pinnacle.window.WindowHandle[]
@@ -909,7 +909,7 @@ end
 
 ---Gets this output's keyboard focus stack.
 ---
----This only includes windows on active tags.
+---This only includes windows on active workspaces.
 ---If you want all windows on the output, use `keyboard_focus_stack` instead.
 ---
 ---@return pinnacle.window.WindowHandle[]
@@ -922,16 +922,16 @@ function OutputHandle:keyboard_focus_stack_visible()
     local batch = {}
     for i, win in ipairs(stack) do
         batch[i] = function()
-            return win:is_on_active_tag()
+            return win:is_on_active_workspace()
         end
     end
 
-    local on_active_tags = require("pinnacle.util").batch(batch)
+    local on_active_workspaces = require("pinnacle.util").batch(batch)
 
     ---@type pinnacle.window.WindowHandle[]
     local keyboard_focus_stack_visible = {}
 
-    for i, is_active in ipairs(on_active_tags) do
+    for i, is_active in ipairs(on_active_workspaces) do
         if is_active then
             table.insert(keyboard_focus_stack_visible, stack[i])
         end

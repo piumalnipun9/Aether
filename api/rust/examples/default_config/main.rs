@@ -24,7 +24,7 @@ use pinnacle_api::pinnacle::Backend;
 use pinnacle_api::process::Command;
 use pinnacle_api::signal::OutputSignal;
 use pinnacle_api::signal::WindowSignal;
-use pinnacle_api::tag;
+use pinnacle_api::workspace;
 use pinnacle_api::util::{Axis, Batch};
 use pinnacle_api::window;
 
@@ -61,38 +61,12 @@ async fn config() {
     // Keybinds              |
     //------------------------
 
-    // `mod_key + s` shows the bindings overlay
-    #[cfg(feature = "snowcap")]
-    input::keybind(mod_key, 's')
-        .on_press(|| {
-            pinnacle_api::snowcap::BindOverlay::new().show();
-        })
-        .group("Compositor")
-        .description("Show the bindings overlay");
-
     // `mod_key + shift + q` quits Pinnacle
-    #[cfg(not(feature = "snowcap"))]
     input::keybind(mod_key | Mod::SHIFT, 'q')
         .set_as_quit()
         .group("Compositor")
         .description("Quit Pinnacle");
 
-    #[cfg(feature = "snowcap")]
-    {
-        // `mod_key + shift + q` shows the quit prompt
-        input::keybind(mod_key | Mod::SHIFT, 'q')
-            .on_press(|| {
-                pinnacle_api::snowcap::QuitPrompt::new().show();
-            })
-            .group("Compositor")
-            .description("Show quit prompt");
-
-        // `mod_key + ctrl + shift + q` for the hard shutdown
-        input::keybind(mod_key | Mod::CTRL | Mod::SHIFT, 'q')
-            .set_as_quit()
-            .group("Compositor")
-            .description("Quit Pinnacle without prompt");
-    }
 
     // `mod_key + ctrl + r` reloads the config
     input::keybind(mod_key | Mod::CTRL, 'r')
@@ -271,8 +245,9 @@ async fn config() {
         Box::new(generator) as _
     }
 
-    // Create a cycling layout generator that can cycle between layouts on different tags.
+    // Create a cycling layout generator that can cycle between layouts on different workspaces.
     let cycler = Arc::new(Mutex::new(Cycle::new([
+        into_box(Dwindle::default()),
         into_box(MasterStack::default()),
         into_box(MasterStack {
             master_side: MasterSide::Right,
@@ -286,7 +261,6 @@ async fn config() {
             master_side: MasterSide::Bottom,
             ..Default::default()
         }),
-        into_box(Dwindle::default()),
         into_box(Spiral::default()),
         into_box(Corner::default()),
         into_box(Corner {
@@ -314,7 +288,7 @@ async fn config() {
     let layout_requester = layout::manage({
         let cycler = cycler.clone();
         move |args| {
-            let Some(tag) = args.tags.first() else {
+            let Some(workspace) = args.workspaces.first() else {
                 return LayoutResponse {
                     root_node: LayoutNode::new(),
                     tree_id: 0,
@@ -322,7 +296,7 @@ async fn config() {
             };
 
             let mut cycler = cycler.lock().unwrap();
-            cycler.set_current_tag(tag.clone());
+            cycler.set_current_workspace(workspace.clone());
 
             let root_node = cycler.layout(args.window_count);
             let tree_id = cycler.current_tree_id();
@@ -339,9 +313,9 @@ async fn config() {
                 let Some(focused_op) = output::get_focused() else {
                     return;
                 };
-                let Some(first_active_tag) = focused_op
-                    .tags()
-                    .batch_find(|tag| Box::pin(tag.active_async()), |active| *active)
+                let Some(first_active_workspace) = focused_op
+                    .workspaces()
+                    .batch_find(|workspace| Box::pin(workspace.active_async()), |active| *active)
                 else {
                     return;
                 };
@@ -349,7 +323,7 @@ async fn config() {
                 cycler
                     .lock()
                     .unwrap()
-                    .cycle_layout_forward(&first_active_tag);
+                    .cycle_layout_forward(&first_active_workspace);
                 requester.request_layout_on_output(&focused_op);
             }
         })
@@ -362,9 +336,9 @@ async fn config() {
             let Some(focused_op) = output::get_focused() else {
                 return;
             };
-            let Some(first_active_tag) = focused_op
-                .tags()
-                .batch_find(|tag| Box::pin(tag.active_async()), |active| *active)
+            let Some(first_active_workspace) = focused_op
+                .workspaces()
+                .batch_find(|workspace| Box::pin(workspace.active_async()), |active| *active)
             else {
                 return;
             };
@@ -372,68 +346,68 @@ async fn config() {
             cycler
                 .lock()
                 .unwrap()
-                .cycle_layout_backward(&first_active_tag);
+                .cycle_layout_backward(&first_active_workspace);
             layout_requester.request_layout_on_output(&focused_op);
         })
         .group("Layout")
         .description("Cycle the layout backward");
 
     //------------------------
-    // Tags                  |
+    // Workspaces                  |
     //------------------------
 
-    let tag_names = ["1", "2", "3", "4", "5", "6", "7", "8", "9"];
+    let workspace_names = ["1", "2", "3", "4", "5", "6", "7", "8", "9"];
 
-    // Setup all monitors with tags "1" through "9"
+    // Setup all monitors with workspaces "1" through "9"
     output::for_each_output(move |output| {
-        let mut tags = tag::add(output, tag_names);
-        tags.next().unwrap().set_active(true);
+        let mut workspaces = workspace::add(output, workspace_names);
+        workspaces.next().unwrap().set_active(true);
     });
 
-    for tag_name in tag_names {
-        // `mod_key + 1-9` switches to tag "1" to "9"
-        input::keybind(mod_key, tag_name)
+    for workspace_name in workspace_names {
+        // `mod_key + 1-9` switches to workspace "1" to "9"
+        input::keybind(mod_key, workspace_name)
             .on_press(move || {
-                if let Some(tag) = tag::get(tag_name) {
-                    tag.switch_to();
+                if let Some(workspace) = workspace::get(workspace_name) {
+                    workspace.switch_to();
                 }
             })
-            .group("Tag")
-            .description(format!("Switch to tag {tag_name}"));
+            .group("Workspace")
+            .description(format!("Switch to workspace {workspace_name}"));
 
-        // `mod_key + ctrl + 1-9` toggles tag "1" to "9"
-        input::keybind(mod_key | Mod::CTRL, tag_name)
+        // `mod_key + ctrl + 1-9` toggles workspace "1" to "9"
+        input::keybind(mod_key | Mod::CTRL, workspace_name)
             .on_press(move || {
-                if let Some(tag) = tag::get(tag_name) {
-                    tag.toggle_active();
+                if let Some(workspace) = workspace::get(workspace_name) {
+                    workspace.toggle_active();
                 }
             })
-            .group("Tag")
-            .description(format!("Toggle tag {tag_name}"));
+            .group("Workspace")
+            .description(format!("Toggle workspace {workspace_name}"));
 
-        // `mod_key + shift + 1-9` moves the focused window to tag "1" to "9"
-        input::keybind(mod_key | Mod::SHIFT, tag_name)
+        // `mod_key + shift + 1-9` moves the focused window to workspace "1" to "9"
+        input::keybind(mod_key | Mod::SHIFT, workspace_name)
             .on_press(move || {
-                if let Some(tag) = tag::get(tag_name)
+                if let Some(workspace) = workspace::get(workspace_name)
                     && let Some(win) = window::get_focused()
                 {
-                    win.move_to_tag(&tag);
+                    win.move_to_workspace(&workspace);
                 }
             })
-            .group("Tag")
-            .description(format!("Move the focused window to tag {tag_name}"));
+            .group("Workspace")
+            .description(format!("Move the focused window to workspace {workspace_name}"));
 
-        // `mod_key + ctrl + shift + 1-9` toggles tag "1" to "9" on the focused window
-        input::keybind(mod_key | Mod::CTRL | Mod::SHIFT, tag_name)
+        // `mod_key + ctrl + shift + 1-9` toggles workspace "1" to "9" on the focused window
+        input::keybind(mod_key | Mod::CTRL | Mod::SHIFT, workspace_name)
             .on_press(move || {
-                if let Some(tg) = tag::get(tag_name)
+                if let Some(tg) = workspace::get(workspace_name)
                     && let Some(win) = window::get_focused()
                 {
-                    win.toggle_tag(&tg);
+                    win.toggle_workspace(&tg);
                 }
             })
-            .group("Tag")
-            .description(format!("Toggle tag {tag_name} on the focused window"));
+            .group("Workspace")
+            .description(format!("Toggle workspace {workspace_name} on the focused window"));
     }
 
     input::libinput::for_each_device(|device| {
@@ -444,21 +418,6 @@ async fn config() {
     });
 
     // Enable focus borders with titlebars
-    #[cfg(feature = "snowcap")]
-    {
-        use pinnacle_api::snowcap::FocusBorder;
-
-        // Add borders to already existing windows.
-        for win in window::get_all() {
-            let _ = FocusBorder::new_with_titlebar(&win).decorate();
-        }
-
-        // Add borders to new windows.
-        window::add_window_rule(move |window| {
-            window.set_decoration_mode(window::DecorationMode::ServerSide);
-            let _ = FocusBorder::new_with_titlebar(&window).decorate();
-        });
-    }
 
     // Enable sloppy focus
     window::connect_signal(WindowSignal::PointerEnter(Box::new(|win| {
@@ -470,14 +429,6 @@ async fn config() {
         output.focus();
     })));
 
-    #[cfg(feature = "snowcap")]
-    if let Some(error) = pinnacle_api::pinnacle::take_last_error() {
-        // Show previous crash messages
-        pinnacle_api::snowcap::ConfigCrashedMessage::new(error).show();
-    } else {
-        // Or show the bind overlay on startup
-        pinnacle_api::snowcap::BindOverlay::new().show();
-    }
 
     Command::new(terminal).once().spawn();
 }

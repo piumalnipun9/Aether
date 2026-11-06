@@ -13,52 +13,52 @@ use smithay::output::Output;
 
 use crate::state::{Pinnacle, WithState};
 
-static TAG_ID_COUNTER: AtomicU32 = AtomicU32::new(0);
+static WORKSPACE_ID_COUNTER: AtomicU32 = AtomicU32::new(0);
 
-/// A unique id for a [`Tag`].
+/// A unique id for a [`Workspace`].
 #[derive(Debug, Hash, PartialEq, Eq, Clone, Copy)]
-pub struct TagId(u32);
+pub struct WorkspaceId(u32);
 
-impl Display for TagId {
+impl Display for WorkspaceId {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "{}", self.0)
     }
 }
 
-impl TagId {
-    /// Creates a new tag ID.
+impl WorkspaceId {
+    /// Creates a new workspace ID.
     pub fn new(id: u32) -> Self {
         Self(id)
     }
 
-    /// Get the next available `TagId`.
+    /// Get the next available `WorkspaceId`.
     fn next() -> Self {
-        Self(TAG_ID_COUNTER.fetch_add(1, Ordering::Relaxed))
+        Self(WORKSPACE_ID_COUNTER.fetch_add(1, Ordering::Relaxed))
     }
 
-    /// Get the tag associated with this id.
-    pub fn tag(&self, pinnacle: &Pinnacle) -> Option<Tag> {
-        let _span = tracy_client::span!("TagId::tag");
+    /// Get the workspace associated with this id.
+    pub fn workspace(&self, pinnacle: &Pinnacle) -> Option<Workspace> {
+        let _span = tracy_client::span!("WorkspaceId::workspace");
 
         pinnacle.outputs.iter().find_map(|op| {
             op.with_state(|state| {
                 state
-                    .tags
+                    .workspaces
                     .iter()
-                    // FIXME: a better tag tracking system
-                    .filter(|tag| !tag.defunct())
-                    .find(|tag| &tag.id() == self)
+                    // FIXME: a better workspace tracking system
+                    .filter(|workspace| !workspace.defunct())
+                    .find(|workspace| &workspace.id() == self)
                     .cloned()
             })
         })
     }
 
-    /// Reset the global TagId counter.
+    /// Reset the global WorkspaceId counter.
     ///
     /// This is used, for example, when a config is reloaded and you want to keep
-    /// windows on the same tags.
+    /// windows on the same workspaces.
     pub fn reset() {
-        TAG_ID_COUNTER.store(0, Ordering::SeqCst);
+        WORKSPACE_ID_COUNTER.store(0, Ordering::SeqCst);
     }
 
     /// Gets the inner numeric ID.
@@ -68,36 +68,36 @@ impl TagId {
 }
 
 #[derive(Debug, Clone)]
-struct TagInner {
-    /// The internal id of this tag.
-    id: TagId,
-    /// The name of this tag.
+struct WorkspaceInner {
+    /// The internal id of this workspace.
+    id: WorkspaceId,
+    /// The name of this workspace.
     name: String,
-    /// Whether this tag is active or not.
+    /// Whether this workspace is active or not.
     active: bool,
-    /// This tag is defunct as a result of a config reload
-    /// and will be replaced by the next added tag.
+    /// This workspace is defunct as a result of a config reload
+    /// and will be replaced by the next added workspace.
     defunct: bool,
 }
 
 /// A marker for windows.
 ///
-/// A window may have 0 or more tags, and you can display 0 or more tags
+/// A window may have 0 or more workspaces, and you can display 0 or more workspaces
 /// on each output at a time.
 #[derive(Debug, Clone)]
-pub struct Tag {
-    inner: Arc<Mutex<TagInner>>,
+pub struct Workspace {
+    inner: Arc<Mutex<WorkspaceInner>>,
 }
 
-impl PartialEq for Tag {
+impl PartialEq for Workspace {
     fn eq(&self, other: &Self) -> bool {
         Arc::ptr_eq(&self.inner, &other.inner)
     }
 }
 
-impl Eq for Tag {}
+impl Eq for Workspace {}
 
-impl Hash for Tag {
+impl Hash for Workspace {
     fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
         let ptr = Arc::as_ptr(&self.inner);
         ptr.hash(state);
@@ -105,11 +105,11 @@ impl Hash for Tag {
 }
 
 // RefCell Safety: These methods should never panic because they are all self-contained or Copy.
-impl Tag {
+impl Workspace {
     pub fn new(name: String) -> Self {
         Self {
-            inner: Arc::new(Mutex::new(TagInner {
-                id: TagId::next(),
+            inner: Arc::new(Mutex::new(WorkspaceInner {
+                id: WorkspaceId::next(),
                 name: name.clone(),
                 active: false,
                 defunct: false,
@@ -117,54 +117,54 @@ impl Tag {
         }
     }
 
-    /// Get the output this tag is on.
+    /// Get the output this workspace is on.
     ///
     /// RefCell Safety: This uses RefCells on every mapped output.
     pub fn output(&self, pinnacle: &Pinnacle) -> Option<Output> {
-        let _span = tracy_client::span!("Tag::output");
+        let _span = tracy_client::span!("Workspace::output");
 
         pinnacle
             .outputs
             .iter()
-            .find(|output| output.with_state(|state| state.tags.contains(self)))
+            .find(|output| output.with_state(|state| state.workspaces.contains(self)))
             .cloned()
     }
 
-    /// Replace all inner fields of this tag with ones from the `new_tag`.
-    pub fn replace(&self, new_tag: Tag) {
-        let mut tag = self.inner.lock().unwrap();
-        *tag = new_tag.inner.lock().unwrap().clone();
-        tag.defunct = false;
+    /// Replace all inner fields of this workspace with ones from the `new_workspace`.
+    pub fn replace(&self, new_workspace: Workspace) {
+        let mut workspace = self.inner.lock().unwrap();
+        *workspace = new_workspace.inner.lock().unwrap().clone();
+        workspace.defunct = false;
     }
 
-    /// Gets this tag's unique numeric ID.
-    pub fn id(&self) -> TagId {
+    /// Gets this workspace's unique numeric ID.
+    pub fn id(&self) -> WorkspaceId {
         self.inner.lock().unwrap().id
     }
 
-    /// Gets this tag's name.
+    /// Gets this workspace's name.
     pub fn name(&self) -> String {
         self.inner.lock().unwrap().name.clone()
     }
 
-    /// Gets whether this tag is active.
+    /// Gets whether this workspace is active.
     pub fn active(&self) -> bool {
         self.inner.lock().unwrap().active
     }
 
-    /// Sets this tag's active state.
+    /// Sets this workspace's active state.
     ///
     /// Returns whether the new state is different from the old one,
     pub fn set_active(&self, active: bool) -> bool {
         std::mem::replace(&mut self.inner.lock().unwrap().active, active) != active
     }
 
-    /// Gets whether this tag is defunct as a result of a config reload.
+    /// Gets whether this workspace is defunct as a result of a config reload.
     pub fn defunct(&self) -> bool {
         self.inner.lock().unwrap().defunct
     }
 
-    /// Make this tag defunct.
+    /// Make this workspace defunct.
     pub fn make_defunct(&self) {
         self.inner.lock().unwrap().defunct = true;
     }

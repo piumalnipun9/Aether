@@ -9,7 +9,7 @@ local log = require("pinnacle.log")
 ---@class pinnacle.layout.LayoutArgs
 ---@field output pinnacle.output.OutputHandle
 ---@field window_count integer
----@field tags pinnacle.tag.TagHandle[]
+---@field workspaces pinnacle.workspace.WorkspaceHandle[]
 
 ---@alias pinnacle.layout.LayoutDir
 ---| "row" Lays out windows in a row horizontally.
@@ -665,49 +665,49 @@ function builtin.floating()
     }
 end
 
----A layout generator that keeps track of layouts per tag
+---A layout generator that keeps track of layouts per workspace
 ---and provides methods to cycle between them.
 ---@class pinnacle.layout.builtin.Cycle : pinnacle.layout.LayoutGenerator
 ---The layouts this generator will cycle between.
 ---@field layouts pinnacle.layout.LayoutGenerator[]
----@field private tag_indices table<integer, integer>
----The current tag that will determine the chosen layout.
----@field current_tag pinnacle.tag.TagHandle?
+---@field private workspace_indices table<integer, integer>
+---The current workspace that will determine the chosen layout.
+---@field current_workspace pinnacle.workspace.WorkspaceHandle?
 local Cycle = {}
 
----Cycles the layout forward for the given tag.
+---Cycles the layout forward for the given workspace.
 ---
----@param tag pinnacle.tag.TagHandle The tag to cycle the layout for.
-function Cycle:cycle_layout_forward(tag)
-    if not self.tag_indices[tag.id] then
-        self.tag_indices[tag.id] = 1
+---@param workspace pinnacle.workspace.WorkspaceHandle The workspace to cycle the layout for.
+function Cycle:cycle_layout_forward(workspace)
+    if not self.workspace_indices[workspace.id] then
+        self.workspace_indices[workspace.id] = 1
     end
-    self.tag_indices[tag.id] = self.tag_indices[tag.id] + 1
-    if self.tag_indices[tag.id] > #self.layouts then
-        self.tag_indices[tag.id] = 1
+    self.workspace_indices[workspace.id] = self.workspace_indices[workspace.id] + 1
+    if self.workspace_indices[workspace.id] > #self.layouts then
+        self.workspace_indices[workspace.id] = 1
     end
 end
 
----Cycles the layout backward for the given tag.
+---Cycles the layout backward for the given workspace.
 ---
----@param tag pinnacle.tag.TagHandle The tag to cycle the layout for.
-function Cycle:cycle_layout_backward(tag)
-    if not self.tag_indices[tag.id] then
-        self.tag_indices[tag.id] = 1
+---@param workspace pinnacle.workspace.WorkspaceHandle The workspace to cycle the layout for.
+function Cycle:cycle_layout_backward(workspace)
+    if not self.workspace_indices[workspace.id] then
+        self.workspace_indices[workspace.id] = 1
     end
-    self.tag_indices[tag.id] = self.tag_indices[tag.id] - 1
-    if self.tag_indices[tag.id] < 1 then
-        self.tag_indices[tag.id] = #self.layouts
+    self.workspace_indices[workspace.id] = self.workspace_indices[workspace.id] - 1
+    if self.workspace_indices[workspace.id] < 1 then
+        self.workspace_indices[workspace.id] = #self.layouts
     end
 end
 
----Gets the current layout generator for the given tag.
+---Gets the current layout generator for the given workspace.
 ---
----@param tag pinnacle.tag.TagHandle The tag to get a layout for.
+---@param workspace pinnacle.workspace.WorkspaceHandle The workspace to get a layout for.
 ---
 ---@return pinnacle.layout.LayoutGenerator?
-function Cycle:current_layout(tag)
-    return self.layouts[self.tag_indices[tag.id] or 1]
+function Cycle:current_layout(workspace)
+    return self.layouts[self.workspace_indices[workspace.id] or 1]
 end
 
 ---Gets a (most-likely) unique identifier for the current layout tree.
@@ -715,14 +715,14 @@ end
 ---
 ---@return integer
 function Cycle:current_tree_id()
-    local tag_id = self.current_tag and self.current_tag.id or 0
-    local layout_id = self.tag_indices[tag_id] or 1
+    local workspace_id = self.current_workspace and self.current_workspace.id or 0
+    local layout_id = self.workspace_indices[workspace_id] or 1
     -- Can't use bit fiddling as bit32 doesn't exist on 5.4 and 5.2 doesn't have the syntax for
     -- bitwise operators, so this is close enough
-    return tag_id + layout_id * 9999999 + 1
+    return workspace_id + layout_id * 9999999 + 1
 end
 
----Creates a layout generator that delegates to other layout generators depending on the tag
+---Creates a layout generator that delegates to other layout generators depending on the workspace
 ---and allows you to cycle between the generators.
 ---
 ---@param layouts pinnacle.layout.LayoutGenerator[] The layouts that this generator will cycle between.
@@ -732,12 +732,12 @@ function builtin.cycle(layouts)
     ---@type pinnacle.layout.builtin.Cycle
     local cycler = {
         layouts = layouts,
-        tag_indices = {},
-        current_tag = nil,
+        workspace_indices = {},
+        current_workspace = nil,
         ---@param self pinnacle.layout.builtin.Cycle
         layout = function(self, window_count)
-            if self.current_tag then
-                local curr_layout = self:current_layout(self.current_tag)
+            if self.current_workspace then
+                local curr_layout = self:current_layout(self.current_workspace)
                 if curr_layout then
                     return curr_layout:layout(window_count)
                 end
@@ -842,7 +842,7 @@ end
 ---@field root_node pinnacle.layout.LayoutNode
 ---A non-negative identifier.
 ---
----Trees that are considered "the same", like trees for a certain tag and layout,
+---Trees that are considered "the same", like trees for a certain workspace and layout,
 ---should have the same identifier to allow Pinnacle to remember tile sizing.
 ---@field tree_id integer
 
@@ -857,15 +857,15 @@ end
 ---
 ---```lua
 ---local layout_requester = Layout.manage(function(args)
----    local first_tag = args.tags[1]
----    if not first_tag then
+---    local first_workspace = args.workspaces[1]
+---    if not first_workspace then
 ---        ---@type pinnacle.layout.LayoutResponse
 ---        return {
 ---            root_node = {},
 ---            tree_id = 0,
 ---        }
 ---    end
----    layout_cycler.current_tag = first_tag
+---    layout_cycler.current_workspace = first_workspace
 ---    local root_node = layout_cycler:layout(args.window_count)
 ---    local tree_id = layout_cycler:current_tree_id()
 ---
@@ -887,7 +887,7 @@ function layout.manage(on_layout)
         local args = {
             output = require("pinnacle.output").handle.new(response.output_name),
             window_count = response.window_count,
-            tags = require("pinnacle.tag").handle.new_from_table(response.tag_ids or {}),
+            workspaces = require("pinnacle.workspace").handle.new_from_table(response.workspace_ids or {}),
         }
 
         local success, ret = pcall(on_layout, args)

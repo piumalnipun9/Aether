@@ -1,7 +1,7 @@
 use std::{rc::Rc, time::Duration};
 
 use smithay::{
-    desktop::{layer_map_for_output, utils::surface_primary_scanout_output},
+    desktop::utils::surface_primary_scanout_output,
     output::Output,
     utils::{Logical, Point, Rectangle},
 };
@@ -45,6 +45,7 @@ impl Pinnacle {
                 snapshot: snap,
                 fullscreen: window.with_state(|state| state.layout_mode.is_fullscreen()),
                 space_loc: loc,
+                close_animation: None,
             });
 
             let weak = Rc::downgrade(&unmapping);
@@ -159,10 +160,10 @@ impl Pinnacle {
 
         let mode = window.with_state(|state| state.layout_mode);
 
-        let non_exclusive_zone = layer_map_for_output(&output).non_exclusive_zone();
+        let non_exclusive_zone = crate::shell::usable_zone(&output);
         let geo = self.compute_window_geometry(window, output_geo, non_exclusive_zone);
 
-        if !window.is_on_active_tag() {
+        if !window.is_on_active_workspace() {
             if let Some(geo) = geo {
                 window.set_pending_geo(geo.size, Some(geo.loc));
             }
@@ -228,12 +229,12 @@ impl Pinnacle {
 
     /// Compute a floating window location for an output.
     ///
-    /// This is used when a window's tags are moved across outputs to prevent the
+    /// This is used when a window's workspaces are moved across outputs to prevent the
     /// window from "jumping back" to an old floating position.
     pub(crate) fn floating_loc_for_output(&self, target: &Output) -> Point<i32, Logical> {
         let output_loc = target.current_location();
 
-        let Rectangle { mut loc, size } = layer_map_for_output(target).non_exclusive_zone();
+        let Rectangle { mut loc, size } = crate::shell::usable_zone(target);
 
         // Slightly offset the location so the window is not jammed in a corner
         let offset = {
@@ -247,7 +248,7 @@ impl Pinnacle {
 
     /// Move a window to a new output.
     ///
-    /// The move itself is done by updating the window tags.
+    /// The move itself is done by updating the window workspaces.
     ///
     /// This function additionally fixup the window floating location to prevent the window from
     /// 'jumping back' if it becomes tiled or spilled.
@@ -269,7 +270,7 @@ impl Pinnacle {
             return;
         };
 
-        window.set_tags_to_output(&target);
+        window.set_workspaces_to_output(&target);
 
         let loc = self.floating_loc_for_output(&target);
         window.with_state_mut(|state| state.set_floating_loc(Some(loc)));

@@ -1,6 +1,8 @@
 use vergen_gitcl::{CargoBuilder, Emitter, GitclBuilder, RustcBuilder, SysinfoBuilder};
 
 fn main() {
+    slint_build::compile("src/shell/ui/shell.slint").unwrap();
+
     let cargo = CargoBuilder::default()
         .opt_level(true)
         .target_triple(true)

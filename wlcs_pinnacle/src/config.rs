@@ -3,7 +3,7 @@ mod inner {
 
     async fn config() {
         pinnacle_api::output::for_each_output(|output| {
-            pinnacle_api::tag::add(output, ["1"])
+            pinnacle_api::workspace::add(output, ["1"])
                 .next()
                 .unwrap()
                 .set_active(true);

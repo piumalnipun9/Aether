@@ -12,7 +12,7 @@ use tracing::warn;
 use crate::{
     focus::keyboard::KeyboardFocusTarget,
     state::{State, WithState},
-    tag::Tag,
+    workspace::Workspace,
     util::transaction::TransactionBuilder,
     window::WindowElement,
 };
@@ -168,11 +168,11 @@ pub fn set_decoration_mode(
     }
 }
 
-pub fn move_to_tag(state: &mut State, window: &WindowElement, tag: &Tag) {
+pub fn move_to_workspace(state: &mut State, window: &WindowElement, workspace: &Workspace) {
     let source_output = window.output(&state.pinnacle);
 
     window.with_state_mut(|state| {
-        state.tags = std::iter::once(tag.clone()).collect();
+        state.workspaces = std::iter::once(workspace.clone()).collect();
     });
 
     if let Some(output) = source_output.as_ref() {
@@ -180,12 +180,12 @@ pub fn move_to_tag(state: &mut State, window: &WindowElement, tag: &Tag) {
         state.schedule_render(output);
     }
 
-    let Some(target_output) = tag.output(&state.pinnacle) else {
+    let Some(target_output) = workspace.output(&state.pinnacle) else {
         state.pinnacle.update_xwayland_stacking_order();
         return;
     };
 
-    if source_output.as_ref() != Some(&target_output) && tag.active() {
+    if source_output.as_ref() != Some(&target_output) && workspace.active() {
         state.pinnacle.request_layout(&target_output);
         state.schedule_render(&target_output);
     }
@@ -193,37 +193,17 @@ pub fn move_to_tag(state: &mut State, window: &WindowElement, tag: &Tag) {
     state.pinnacle.update_xwayland_stacking_order();
 }
 
-pub fn set_tag(state: &mut State, window: &WindowElement, tag: &Tag, set: impl Into<Option<bool>>) {
-    let set = set.into();
+/// Puts a window on a workspace.
+///
+/// A window is always on exactly one workspace, so setting (or toggling on) a
+/// workspace moves the window there, and unsetting its current workspace does nothing.
+pub fn set_workspace(state: &mut State, window: &WindowElement, workspace: &Workspace, set: impl Into<Option<bool>>) {
+    let on_workspace = window.with_state(|state| state.workspaces.contains(workspace));
+    let set = set.into().unwrap_or(!on_workspace);
 
-    match set {
-        Some(true) => {
-            window.with_state_mut(|state| state.tags.insert(tag.clone()));
-        }
-        Some(false) => {
-            window.with_state_mut(|state| state.tags.shift_remove(tag));
-        }
-        None => {
-            window.with_state_mut(|state| {
-                if state.tags.contains(tag) {
-                    // Prevent toggling that would leave a window tagless
-                    if state.tags.len() > 1 {
-                        state.tags.shift_remove(tag);
-                    }
-                } else {
-                    state.tags.insert(tag.clone());
-                }
-            });
-        }
+    if set && !on_workspace {
+        move_to_workspace(state, window, workspace);
     }
-
-    let Some(output) = tag.output(&state.pinnacle) else {
-        return;
-    };
-
-    state.pinnacle.request_layout(&output);
-    state.schedule_render(&output);
-    state.pinnacle.update_xwayland_stacking_order();
 }
 
 pub fn raise(state: &mut State, window: WindowElement) {
@@ -394,19 +374,19 @@ pub fn swap(state: &mut State, window: WindowElement, target: WindowElement) {
         return;
     };
 
-    let window_was_on_active_tag = window.is_on_active_tag();
-    let target_was_on_active_tag = target.is_on_active_tag();
+    let window_was_on_active_workspace = window.is_on_active_workspace();
+    let target_was_on_active_workspace = target.is_on_active_workspace();
 
     tracing::debug!("Swapping window positions");
     state.pinnacle.layout_state.pending_swap = true;
     state.pinnacle.swap_window_positions(&window, &target);
 
-    tracing::debug!("Swapping window tags");
-    let window_tags = window.with_state(|state| state.tags.clone());
-    let target_tags = target.with_state(|state| state.tags.clone());
+    tracing::debug!("Swapping window workspaces");
+    let window_workspaces = window.with_state(|state| state.workspaces.clone());
+    let target_workspaces = target.with_state(|state| state.workspaces.clone());
 
-    window.with_state_mut(|state| state.tags = target_tags);
-    target.with_state_mut(|state| state.tags = window_tags);
+    window.with_state_mut(|state| state.workspaces = target_workspaces);
+    target.with_state_mut(|state| state.workspaces = window_workspaces);
 
     // Swap floating attribute. In case of cross-output swap, this prevent window jumping back.
     let window_floating_x = window.with_state(|state| state.floating_x);
@@ -438,7 +418,7 @@ pub fn swap(state: &mut State, window: WindowElement, target: WindowElement) {
     let mut builder = TransactionBuilder::new();
     let mut unmappings = Vec::new();
 
-    if target_was_on_active_tag {
+    if target_was_on_active_workspace {
         let geo = target_geo.expect("Target should have had a geometry");
         window.with_state_mut(|state| state.layout_mode.apply_mode(target_layout_mode));
 
@@ -454,7 +434,7 @@ pub fn swap(state: &mut State, window: WindowElement, target: WindowElement) {
         unmappings.push(unmapping);
     }
 
-    if window_was_on_active_tag {
+    if window_was_on_active_workspace {
         let geo = window_geo.expect("Window should have had a geometry");
         target.with_state_mut(|state| state.layout_mode.apply_mode(window_layout_mode));
 

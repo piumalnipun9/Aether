@@ -73,11 +73,11 @@ impl PointerGrab<State> for MoveSurfaceGrab {
 
         match layout_mode {
             LayoutModeKind::Tiled => {
-                let tag_output = self.window.output(&state.pinnacle);
+                let workspace_output = self.window.output(&state.pinnacle);
                 if let Some(output_under_pointer) = output_under_pointer
-                    && Some(&output_under_pointer) != tag_output.as_ref()
+                    && Some(&output_under_pointer) != workspace_output.as_ref()
                 {
-                    self.window.set_tags_to_output(&output_under_pointer);
+                    self.window.set_workspaces_to_output(&output_under_pointer);
 
                     if self.window.with_state(|state| state.layout_mode.is_tiled()) {
                         self.window
@@ -86,8 +86,8 @@ impl PointerGrab<State> for MoveSurfaceGrab {
 
                     state.pinnacle.request_layout(&output_under_pointer);
 
-                    if let Some(tag_output) = tag_output {
-                        state.pinnacle.request_layout(&tag_output);
+                    if let Some(workspace_output) = workspace_output {
+                        state.pinnacle.request_layout(&workspace_output);
                     }
                 }
 
@@ -97,7 +97,7 @@ impl PointerGrab<State> for MoveSurfaceGrab {
                     .pinnacle
                     .space
                     .elements()
-                    .filter(|win| win.is_on_active_tag())
+                    .filter(|win| win.is_on_active_workspace())
                     .rev()
                     .find(|&win| {
                         if let Some(loc) = state.pinnacle.space.element_location(win) {
@@ -150,9 +150,9 @@ impl PointerGrab<State> for MoveSurfaceGrab {
                 });
             }
             LayoutModeKind::Maximized | LayoutModeKind::Fullscreen => {
-                let tag_output = self.window.output(&state.pinnacle);
+                let workspace_output = self.window.output(&state.pinnacle);
                 if let Some(output_under_pointer) = output_under_pointer
-                    && Some(&output_under_pointer) != tag_output.as_ref()
+                    && Some(&output_under_pointer) != workspace_output.as_ref()
                 {
                     state
                         .pinnacle

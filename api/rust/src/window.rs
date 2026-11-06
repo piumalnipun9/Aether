@@ -19,11 +19,11 @@ use pinnacle_api_defs::pinnacle::{
         self,
         v1::{
             GetAppIdRequest, GetFocusedRequest, GetForeignToplevelListIdentifierRequest,
-            GetLayoutModeRequest, GetLocRequest, GetSizeRequest, GetTagIdsRequest, GetTitleRequest,
+            GetLayoutModeRequest, GetLocRequest, GetSizeRequest, GetWorkspaceIdsRequest, GetTitleRequest,
             GetWindowsInDirRequest, LowerRequest, MoveGrabRequest, MoveToOutputRequest,
-            MoveToTagRequest, RaiseRequest, ResizeGrabRequest, ResizeTileRequest,
+            MoveToWorkspaceRequest, RaiseRequest, ResizeGrabRequest, ResizeTileRequest,
             SetDecorationModeRequest, SetFloatingRequest, SetFocusedRequest, SetFullscreenRequest,
-            SetGeometryRequest, SetMaximizedRequest, SetTagRequest, SetTagsRequest,
+            SetGeometryRequest, SetMaximizedRequest, SetWorkspaceRequest, SetWorkspacesRequest,
             SetVrrDemandRequest, SwapRequest,
         },
     },
@@ -37,7 +37,7 @@ use crate::{
     input::MouseButton,
     output::OutputHandle,
     signal::{SignalHandle, WindowSignal},
-    tag::TagHandle,
+    workspace::WorkspaceHandle,
     util::{Batch, Direction, Point, Size},
 };
 
@@ -442,7 +442,7 @@ impl WindowHandle {
 
     /// Moves this window to the specified output.
     ///
-    /// This will set the window tags to the output tags, and update the window position.
+    /// This will set the window workspaces to the output workspaces, and update the window position.
     ///
     /// # Example
     ///
@@ -468,54 +468,41 @@ impl WindowHandle {
             .unwrap();
     }
 
-    /// Moves this window to the given `tag`.
+    /// Moves this window to the given `workspace`.
     ///
-    /// This will remove all tags from this window then tag it with `tag`, essentially moving the
-    /// window to that tag.
+    /// A window is always on exactly one workspace.
     ///
     /// # Examples
     ///
     /// ```no_run
     /// # use pinnacle_api::window;
-    /// # use pinnacle_api::tag;
+    /// # use pinnacle_api::workspace;
     /// # || {
-    /// // Move the focused window to tag "Code" on the focused output
-    /// window::get_focused()?.move_to_tag(&tag::get("Code")?);
+    /// // Move the focused window to workspace "Code" on the focused output
+    /// window::get_focused()?.move_to_workspace(&workspace::get("Code")?);
     /// # Some(())
     /// # };
     /// ```
-    pub fn move_to_tag(&self, tag: &TagHandle) {
+    pub fn move_to_workspace(&self, workspace: &WorkspaceHandle) {
         let window_id = self.id;
-        let tag_id = tag.id;
+        let workspace_id = workspace.id;
         Client::window()
-            .move_to_tag(MoveToTagRequest { window_id, tag_id })
+            .move_to_workspace(MoveToWorkspaceRequest { window_id, workspace_id })
             .block_on_tokio()
             .unwrap();
     }
 
-    /// Sets or unsets a tag on this window.
+    /// Moves this window to `workspace` when `set` is true.
     ///
-    /// # Examples
-    ///
-    /// ```no_run
-    /// # use pinnacle_api::window;
-    /// # use pinnacle_api::tag;
-    /// # || {
-    /// let focused = window::get_focused()?;
-    /// let tag = tag::get("Potato")?;
-    ///
-    /// focused.set_tag(&tag, true); // `focused` now has tag "Potato"
-    /// focused.set_tag(&tag, false); // `focused` no longer has tag "Potato"
-    /// # Some(())
-    /// # };
-    /// ```
-    pub fn set_tag(&self, tag: &TagHandle, set: bool) {
+    /// A window is always on exactly one workspace, so unsetting does nothing.
+    /// Prefer [`move_to_workspace`][Self::move_to_workspace].
+    pub fn set_workspace(&self, workspace: &WorkspaceHandle, set: bool) {
         let window_id = self.id;
-        let tag_id = tag.id;
+        let workspace_id = workspace.id;
         Client::window()
-            .set_tag(SetTagRequest {
+            .set_workspace(SetWorkspaceRequest {
                 window_id,
-                tag_id,
+                workspace_id,
                 set_or_toggle: match set {
                     true => SetOrToggle::Set,
                     false => SetOrToggle::Unset,
@@ -526,68 +513,40 @@ impl WindowHandle {
             .unwrap();
     }
 
-    /// Toggles a tag on this window.
+    /// Moves this window to `workspace` if it isn't already there.
     ///
-    /// # Examples
-    ///
-    /// ```no_run
-    /// # use pinnacle_api::window;
-    /// # use pinnacle_api::tag;
-    /// # || {
-    /// let focused = window::get_focused()?;
-    /// let tag = tag::get("Potato")?;
-    ///
-    /// focused.toggle_tag(&tag); // `focused` now has tag "Potato"
-    /// focused.toggle_tag(&tag); // `focused` no longer has tag "Potato"
-    /// # Some(())
-    /// # };
-    /// ```
-    pub fn toggle_tag(&self, tag: &TagHandle) {
+    /// A window is always on exactly one workspace, so this never removes it.
+    /// Prefer [`move_to_workspace`][Self::move_to_workspace].
+    pub fn toggle_workspace(&self, workspace: &WorkspaceHandle) {
         let window_id = self.id;
-        let tag_id = tag.id;
+        let workspace_id = workspace.id;
         Client::window()
-            .set_tag(SetTagRequest {
+            .set_workspace(SetWorkspaceRequest {
                 window_id,
-                tag_id,
+                workspace_id,
                 set_or_toggle: SetOrToggle::Toggle.into(),
             })
             .block_on_tokio()
             .unwrap();
     }
 
-    /// Sets the exact provided tags on this window.
+    /// Moves this window to the first of the given workspaces.
     ///
-    /// Passing in an empty collection will not change the window's tags.
-    ///
-    /// For ergonomics, this accepts iterators of both `TagHandle` and `&TagHandle`.
-    ///
-    /// # Examples
-    ///
-    /// ```no_run
-    /// # use pinnacle_api::window;
-    /// # use pinnacle_api::tag;
-    /// # || {
-    /// let focused = window::get_focused()?;
-    /// let tag1 = tag::get("1")?;
-    /// let tag3 = tag::get("3")?;
-    ///
-    /// // Set `focused`'s tags to "1" and "3", removing all others
-    /// focused.set_tags([tag1, tag3]);
-    /// # Some(())
-    /// # };
-    /// ```
-    pub fn set_tags<T: Borrow<TagHandle>>(&self, tags: impl IntoIterator<Item = T>) {
+    /// A window is always on exactly one workspace, so any further workspaces are ignored.
+    /// Passing in an empty collection does nothing.
+    /// Prefer [`move_to_workspace`][Self::move_to_workspace].
+    pub fn set_workspaces<T: Borrow<WorkspaceHandle>>(&self, workspaces: impl IntoIterator<Item = T>) {
         let window_id = self.id;
-        let tag_ids = tags
+        let workspace_ids = workspaces
             .into_iter()
-            .map(|tag| {
-                let tag: &TagHandle = tag.borrow();
-                tag.id
+            .map(|workspace| {
+                let workspace: &WorkspaceHandle = workspace.borrow();
+                workspace.id
             })
             .collect::<Vec<_>>();
 
         Client::window()
-            .set_tags(SetTagsRequest { window_id, tag_ids })
+            .set_workspaces(SetWorkspacesRequest { window_id, workspace_ids })
             .block_on_tokio()
             .unwrap();
     }
@@ -707,16 +666,16 @@ impl WindowHandle {
     /// Gets this window's output.
     ///
     /// This is currently implemented as the output of the first
-    /// tag that this window has.
+    /// workspace that this window has.
     ///
-    /// Returns `None` if this window doesn't exist or if it has no tags.
+    /// Returns `None` if this window doesn't exist or if it has no workspaces.
     pub fn output(&self) -> Option<OutputHandle> {
         self.output_async().block_on_tokio()
     }
 
     /// Async impl for [`Self::output`].
     pub async fn output_async(&self) -> Option<OutputHandle> {
-        Some(self.tags_async().await.next()?.output())
+        Some(self.workspaces_async().await.next()?.output())
     }
 
     /// Gets whether or not this window has keyboard focus.
@@ -807,34 +766,34 @@ impl WindowHandle {
         self.layout_mode_async().await == LayoutMode::Maximized
     }
 
-    /// Gets handles to all tags on this window.
-    pub fn tags(&self) -> impl Iterator<Item = TagHandle> + use<> {
-        self.tags_async().block_on_tokio()
+    /// Gets handles to all workspaces on this window.
+    pub fn workspaces(&self) -> impl Iterator<Item = WorkspaceHandle> + use<> {
+        self.workspaces_async().block_on_tokio()
     }
 
-    /// Async impl for [`Self::tags`].
-    pub async fn tags_async(&self) -> impl Iterator<Item = TagHandle> + use<> {
+    /// Async impl for [`Self::workspaces`].
+    pub async fn workspaces_async(&self) -> impl Iterator<Item = WorkspaceHandle> + use<> {
         let window_id = self.id;
         Client::window()
-            .get_tag_ids(GetTagIdsRequest { window_id })
+            .get_workspace_ids(GetWorkspaceIdsRequest { window_id })
             .await
             .unwrap()
             .into_inner()
-            .tag_ids
+            .workspace_ids
             .into_iter()
-            .map(|id| TagHandle { id })
+            .map(|id| WorkspaceHandle { id })
     }
 
-    /// Gets whether or not this window has an active tag.
-    pub fn is_on_active_tag(&self) -> bool {
-        self.is_on_active_tag_async().block_on_tokio()
+    /// Gets whether or not this window has an active workspace.
+    pub fn is_on_active_workspace(&self) -> bool {
+        self.is_on_active_workspace_async().block_on_tokio()
     }
 
-    /// Async impl for [`Self::is_on_active_tag`].
-    pub async fn is_on_active_tag_async(&self) -> bool {
-        self.tags_async()
+    /// Async impl for [`Self::is_on_active_workspace`].
+    pub async fn is_on_active_workspace_async(&self) -> bool {
+        self.workspaces_async()
             .await
-            .batch_find(|tag| tag.active_async().boxed(), |active| *active)
+            .batch_find(|workspace| workspace.active_async().boxed(), |active| *active)
             .is_some()
     }
 
@@ -937,11 +896,11 @@ impl WindowHandle {
 /// ```no_run
 /// # use pinnacle_api::window;
 /// # use pinnacle_api::window::DecorationMode;
-/// # use pinnacle_api::tag;
+/// # use pinnacle_api::workspace;
 /// window::add_window_rule(|window| {
-///     // Make Alacritty always open on the "Terminal" tag
+///     // Make Alacritty always open on the "Terminal" workspace
 ///     if window.app_id() == "Alacritty" {
-///         window.set_tag(&tag::get("Terminal").unwrap(), true);
+///         window.set_workspace(&workspace::get("Terminal").unwrap(), true);
 ///     }
 ///
 ///     // Make all windows use client-side decorations

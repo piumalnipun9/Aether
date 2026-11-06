@@ -50,7 +50,7 @@ pub fn new_lua() -> Lua {
     lua.load("Output = require('pinnacle.output')")
         .exec()
         .unwrap();
-    lua.load("Tag = require('pinnacle.tag')").exec().unwrap();
+    lua.load("Workspace = require('pinnacle.workspace')").exec().unwrap();
     lua.load("Window = require('pinnacle.window')")
         .exec()
         .unwrap();

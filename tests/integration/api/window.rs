@@ -2,7 +2,7 @@ use crate::{
     common::{Lang, fixture::Fixture, for_each_api},
     spawn_lua_blocking,
 };
-use pinnacle::{focus::keyboard::KeyboardFocusTarget, state::WithState, tag::Tag};
+use pinnacle::{focus::keyboard::KeyboardFocusTarget, state::WithState, workspace::Workspace};
 use pinnacle_api::{
     layout::{LayoutGenerator as _, generators::MasterStack},
     output::OutputHandle,
@@ -18,9 +18,9 @@ fn set_up() -> (Fixture, Output) {
 
     let output = fixture.add_output(Rectangle::new((0, 0).into(), (1920, 1080).into()));
     output.with_state_mut(|state| {
-        let tag = Tag::new("1".to_string());
-        tag.set_active(true);
-        state.add_tags([tag]);
+        let workspace = Workspace::new("1".to_string());
+        workspace.set_active(true);
+        state.add_workspaces([workspace]);
     });
     fixture.pinnacle().focus_output(&output);
 
@@ -789,13 +789,13 @@ fn window_handle_set_vrr_demand() {
 }
 
 #[test_log::test]
-fn window_handle_move_to_tag() {
+fn window_handle_move_to_workspace() {
     for_each_api(|lang| {
         let (mut fixture, output) = set_up();
         output.with_state_mut(|state| {
-            let tag2 = Tag::new("2".to_string());
-            let tag3 = Tag::new("3".to_string());
-            state.add_tags([tag2, tag3]);
+            let workspace2 = Workspace::new("2".to_string());
+            let workspace3 = Workspace::new("3".to_string());
+            state.add_workspaces([workspace2, workspace3]);
         });
 
         let client_id = fixture.add_client();
@@ -806,29 +806,29 @@ fn window_handle_move_to_tag() {
             Lang::Rust => fixture.spawn_blocking(|| {
                 pinnacle_api::window::get_focused()
                     .unwrap()
-                    .move_to_tag(&pinnacle_api::tag::get("2").unwrap());
+                    .move_to_workspace(&pinnacle_api::workspace::get("2").unwrap());
             }),
             Lang::Lua => spawn_lua_blocking! {
                 fixture,
-                Window.get_focused():move_to_tag(Tag.get('2'))
+                Window.get_focused():move_to_workspace(Workspace.get('2'))
             },
         }
 
-        let tags = fixture.pinnacle().windows[0].with_state(|state| state.tags.clone());
+        let workspaces = fixture.pinnacle().windows[0].with_state(|state| state.workspaces.clone());
 
-        assert_eq!(tags.len(), 1);
-        assert_eq!(tags[0].name(), "2");
+        assert_eq!(workspaces.len(), 1);
+        assert_eq!(workspaces[0].name(), "2");
     });
 }
 
 #[test_log::test]
-fn window_handle_set_tag() {
+fn window_handle_set_workspace() {
     for_each_api(|lang| {
         let (mut fixture, output) = set_up();
         output.with_state_mut(|state| {
-            let tag2 = Tag::new("2".to_string());
-            let tag3 = Tag::new("3".to_string());
-            state.add_tags([tag2, tag3]);
+            let workspace2 = Workspace::new("2".to_string());
+            let workspace3 = Workspace::new("3".to_string());
+            state.add_workspaces([workspace2, workspace3]);
         });
 
         let client_id = fixture.add_client();
@@ -839,47 +839,47 @@ fn window_handle_set_tag() {
             Lang::Rust => fixture.spawn_blocking(|| {
                 pinnacle_api::window::get_focused()
                     .unwrap()
-                    .set_tag(&pinnacle_api::tag::get("2").unwrap(), true);
+                    .set_workspace(&pinnacle_api::workspace::get("2").unwrap(), true);
             }),
             Lang::Lua => spawn_lua_blocking! {
                 fixture,
-                Window.get_focused():set_tag(Tag.get('2'), true)
+                Window.get_focused():set_workspace(Workspace.get('2'), true)
             },
         }
 
-        let tags = fixture.pinnacle().windows[0].with_state(|state| state.tags.clone());
+        let workspaces = fixture.pinnacle().windows[0].with_state(|state| state.workspaces.clone());
 
-        assert_eq!(tags.len(), 2);
-        assert_eq!(tags[0].name(), "1");
-        assert_eq!(tags[1].name(), "2");
+        assert_eq!(workspaces.len(), 2);
+        assert_eq!(workspaces[0].name(), "1");
+        assert_eq!(workspaces[1].name(), "2");
 
         match lang {
             Lang::Rust => fixture.spawn_blocking(|| {
                 pinnacle_api::window::get_focused()
                     .unwrap()
-                    .set_tag(&pinnacle_api::tag::get("1").unwrap(), false);
+                    .set_workspace(&pinnacle_api::workspace::get("1").unwrap(), false);
             }),
             Lang::Lua => spawn_lua_blocking! {
                 fixture,
-                Window.get_focused():set_tag(Tag.get('1'), false)
+                Window.get_focused():set_workspace(Workspace.get('1'), false)
             },
         }
 
-        let tags = fixture.pinnacle().windows[0].with_state(|state| state.tags.clone());
+        let workspaces = fixture.pinnacle().windows[0].with_state(|state| state.workspaces.clone());
 
-        assert_eq!(tags.len(), 1);
-        assert_eq!(tags[0].name(), "2");
+        assert_eq!(workspaces.len(), 1);
+        assert_eq!(workspaces[0].name(), "2");
     });
 }
 
 #[test_log::test]
-fn window_handle_toggle_tag() {
+fn window_handle_toggle_workspace() {
     for_each_api(|lang| {
         let (mut fixture, output) = set_up();
         output.with_state_mut(|state| {
-            let tag2 = Tag::new("2".to_string());
-            let tag3 = Tag::new("3".to_string());
-            state.add_tags([tag2, tag3]);
+            let workspace2 = Workspace::new("2".to_string());
+            let workspace3 = Workspace::new("3".to_string());
+            state.add_workspaces([workspace2, workspace3]);
         });
 
         let client_id = fixture.add_client();
@@ -890,47 +890,47 @@ fn window_handle_toggle_tag() {
             Lang::Rust => fixture.spawn_blocking(|| {
                 pinnacle_api::window::get_focused()
                     .unwrap()
-                    .toggle_tag(&pinnacle_api::tag::get("2").unwrap());
+                    .toggle_workspace(&pinnacle_api::workspace::get("2").unwrap());
             }),
             Lang::Lua => spawn_lua_blocking! {
                 fixture,
-                Window.get_focused():toggle_tag(Tag.get('2'))
+                Window.get_focused():toggle_workspace(Workspace.get('2'))
             },
         }
 
-        let tags = fixture.pinnacle().windows[0].with_state(|state| state.tags.clone());
+        let workspaces = fixture.pinnacle().windows[0].with_state(|state| state.workspaces.clone());
 
-        assert_eq!(tags.len(), 2);
-        assert_eq!(tags[0].name(), "1");
-        assert_eq!(tags[1].name(), "2");
+        assert_eq!(workspaces.len(), 2);
+        assert_eq!(workspaces[0].name(), "1");
+        assert_eq!(workspaces[1].name(), "2");
 
         match lang {
             Lang::Rust => fixture.spawn_blocking(|| {
                 pinnacle_api::window::get_focused()
                     .unwrap()
-                    .toggle_tag(&pinnacle_api::tag::get("1").unwrap());
+                    .toggle_workspace(&pinnacle_api::workspace::get("1").unwrap());
             }),
             Lang::Lua => spawn_lua_blocking! {
                 fixture,
-                Window.get_focused():toggle_tag(Tag.get('1'))
+                Window.get_focused():toggle_workspace(Workspace.get('1'))
             },
         }
 
-        let tags = fixture.pinnacle().windows[0].with_state(|state| state.tags.clone());
+        let workspaces = fixture.pinnacle().windows[0].with_state(|state| state.workspaces.clone());
 
-        assert_eq!(tags.len(), 1);
-        assert_eq!(tags[0].name(), "2");
+        assert_eq!(workspaces.len(), 1);
+        assert_eq!(workspaces[0].name(), "2");
     });
 }
 
 #[test_log::test]
-fn window_handle_set_tags() {
+fn window_handle_set_workspaces() {
     for_each_api(|lang| {
         let (mut fixture, output) = set_up();
         output.with_state_mut(|state| {
-            let tag2 = Tag::new("2".to_string());
-            let tag3 = Tag::new("3".to_string());
-            state.add_tags([tag2, tag3]);
+            let workspace2 = Workspace::new("2".to_string());
+            let workspace3 = Workspace::new("3".to_string());
+            state.add_workspaces([workspace2, workspace3]);
         });
 
         let client_id = fixture.add_client();
@@ -939,42 +939,42 @@ fn window_handle_set_tags() {
 
         match lang {
             Lang::Rust => fixture.spawn_blocking(|| {
-                pinnacle_api::window::get_focused().unwrap().set_tags([
-                    pinnacle_api::tag::get("2").unwrap(),
-                    pinnacle_api::tag::get("3").unwrap(),
+                pinnacle_api::window::get_focused().unwrap().set_workspaces([
+                    pinnacle_api::workspace::get("2").unwrap(),
+                    pinnacle_api::workspace::get("3").unwrap(),
                 ]);
             }),
             Lang::Lua => spawn_lua_blocking! {
                 fixture,
-                Window.get_focused():set_tags({ Tag.get("2"), Tag.get("3") })
+                Window.get_focused():set_workspaces({ Workspace.get("2"), Workspace.get("3") })
             },
         }
 
-        let tags = fixture.pinnacle().windows[0].with_state(|state| state.tags.clone());
+        let workspaces = fixture.pinnacle().windows[0].with_state(|state| state.workspaces.clone());
 
-        assert_eq!(tags.len(), 2);
-        assert_eq!(tags[0].name(), "2");
-        assert_eq!(tags[1].name(), "3");
+        assert_eq!(workspaces.len(), 2);
+        assert_eq!(workspaces[0].name(), "2");
+        assert_eq!(workspaces[1].name(), "3");
 
-        // Setting tags to empty shouldn't do anything
+        // Setting workspaces to empty shouldn't do anything
 
         match lang {
             Lang::Rust => fixture.spawn_blocking(|| {
                 pinnacle_api::window::get_focused()
                     .unwrap()
-                    .set_tags::<pinnacle_api::tag::TagHandle>([]);
+                    .set_workspaces::<pinnacle_api::workspace::WorkspaceHandle>([]);
             }),
             Lang::Lua => spawn_lua_blocking! {
                 fixture,
-                Window.get_focused():set_tags({})
+                Window.get_focused():set_workspaces({})
             },
         }
 
-        let tags = fixture.pinnacle().windows[0].with_state(|state| state.tags.clone());
+        let workspaces = fixture.pinnacle().windows[0].with_state(|state| state.workspaces.clone());
 
-        assert_eq!(tags.len(), 2);
-        assert_eq!(tags[0].name(), "2");
-        assert_eq!(tags[1].name(), "3");
+        assert_eq!(workspaces.len(), 2);
+        assert_eq!(workspaces[0].name(), "2");
+        assert_eq!(workspaces[1].name(), "3");
     });
 }
 
@@ -1065,7 +1065,7 @@ fn window_handle_lower() {
 }
 
 #[test_log::test]
-fn window_handle_is_on_active_tag() {
+fn window_handle_is_on_active_workspace() {
     for_each_api(|lang| {
         let (mut fixture, output) = set_up();
 
@@ -1079,17 +1079,17 @@ fn window_handle_is_on_active_tag() {
                     pinnacle_api::window::get_all()
                         .next()
                         .unwrap()
-                        .is_on_active_tag()
+                        .is_on_active_workspace()
                 );
             }),
             Lang::Lua => spawn_lua_blocking! {
                 fixture,
-                assert(Window.get_all()[1]:is_on_active_tag())
+                assert(Window.get_all()[1]:is_on_active_workspace())
             },
         }
 
         output.with_state(|state| {
-            state.tags[0].set_active(false);
+            state.workspaces[0].set_active(false);
         });
 
         match lang {
@@ -1098,12 +1098,12 @@ fn window_handle_is_on_active_tag() {
                     !pinnacle_api::window::get_all()
                         .next()
                         .unwrap()
-                        .is_on_active_tag()
+                        .is_on_active_workspace()
                 );
             }),
             Lang::Lua => spawn_lua_blocking! {
                 fixture,
-                assert(not Window.get_all()[1]:is_on_active_tag())
+                assert(not Window.get_all()[1]:is_on_active_workspace())
             },
         }
     });
@@ -1382,7 +1382,7 @@ fn window_handle_maximized() {
 }
 
 #[test_log::test]
-fn window_handle_tags() {
+fn window_handle_workspaces() {
     let (mut fixture, _) = set_up();
 
     let client_id = fixture.add_client();
@@ -1390,19 +1390,19 @@ fn window_handle_tags() {
     fixture.spawn_windows(1, client_id);
 
     fixture.spawn_blocking(|| {
-        let tags = pinnacle_api::window::get_focused()
+        let workspaces = pinnacle_api::window::get_focused()
             .unwrap()
-            .tags()
+            .workspaces()
             .collect::<Vec<_>>();
-        assert_eq!(tags.len(), 1);
-        assert_eq!(tags[0].name(), "1");
+        assert_eq!(workspaces.len(), 1);
+        assert_eq!(workspaces[0].name(), "1");
     });
 
     spawn_lua_blocking! {
         fixture,
-        local tags = Window.get_focused():tags()
-        assert(#tags == 1)
-        assert(tags[1]:name() == "1")
+        local workspaces = Window.get_focused():workspaces()
+        assert(#workspaces == 1)
+        assert(workspaces[1]:name() == "1")
     };
 }
 
@@ -1459,9 +1459,9 @@ fn window_handle_move_to_output() {
         let output_geo = Rectangle::new((1920, 0).into(), (1920, 1080).into());
         let output2 = fixture.add_output(output_geo);
         output2.with_state_mut(|state| {
-            let tag = Tag::new("1".to_string());
-            tag.set_active(true);
-            state.add_tags([tag]);
+            let workspace = Workspace::new("1".to_string());
+            workspace.set_active(true);
+            state.add_workspaces([workspace]);
         });
         fixture.pinnacle().focus_output(&output1);
 
@@ -1553,9 +1553,9 @@ fn window_handle_swap_multi_output() {
 
         let output2 = fixture.add_output(Rectangle::new((1920, 0).into(), (1920, 1080).into()));
         output2.with_state_mut(|state| {
-            let tag = Tag::new("2".to_string());
-            tag.set_active(true);
-            state.add_tags([tag]);
+            let workspace = Workspace::new("2".to_string());
+            workspace.set_active(true);
+            state.add_workspaces([workspace]);
         });
 
         fixture.pinnacle().focus_output(&output2);
@@ -1571,8 +1571,8 @@ fn window_handle_swap_multi_output() {
         let window_geo = fixture.pinnacle().space.element_geometry(&window);
         let target_geo = fixture.pinnacle().space.element_geometry(&target);
 
-        let window_tags = window.with_state(|state| state.tags.clone());
-        let target_tags = target.with_state(|state| state.tags.clone());
+        let window_workspaces = window.with_state(|state| state.workspaces.clone());
+        let target_workspaces = target.with_state(|state| state.workspaces.clone());
 
         match lang {
             Lang::Rust => fixture.spawn_blocking(move || {
@@ -1601,8 +1601,8 @@ fn window_handle_swap_multi_output() {
             fixture.pinnacle().space.element_geometry(&window)
         );
 
-        assert_eq!(window_tags, target.with_state(|state| state.tags.clone()));
-        assert_eq!(target_tags, window.with_state(|state| state.tags.clone()));
+        assert_eq!(window_workspaces, target.with_state(|state| state.workspaces.clone()));
+        assert_eq!(target_workspaces, window.with_state(|state| state.workspaces.clone()));
     })
 }
 
@@ -1670,9 +1670,9 @@ fn window_handle_swap_non_tiled_multi_output() {
 
         let output2 = fixture.add_output(Rectangle::new((1920, 0).into(), (1920, 1080).into()));
         output2.with_state_mut(|state| {
-            let tag = Tag::new("2".to_string());
-            tag.set_active(true);
-            state.add_tags([tag]);
+            let workspace = Workspace::new("2".to_string());
+            workspace.set_active(true);
+            state.add_workspaces([workspace]);
         });
         fixture.pinnacle().focus_output(&output2);
 
@@ -1687,8 +1687,8 @@ fn window_handle_swap_non_tiled_multi_output() {
         let window_geo = fixture.pinnacle().space.element_geometry(&window);
         let target_geo = fixture.pinnacle().space.element_geometry(&target);
 
-        let window_tags = window.with_state(|state| state.tags.clone());
-        let target_tags = target.with_state(|state| state.tags.clone());
+        let window_workspaces = window.with_state(|state| state.workspaces.clone());
+        let target_workspaces = target.with_state(|state| state.workspaces.clone());
 
         match lang {
             Lang::Rust => fixture.spawn_blocking(move || {
@@ -1720,8 +1720,8 @@ fn window_handle_swap_non_tiled_multi_output() {
             fixture.pinnacle().space.element_geometry(&window)
         );
 
-        assert_eq!(window_tags, target.with_state(|state| state.tags.clone()));
-        assert_eq!(target_tags, window.with_state(|state| state.tags.clone()));
+        assert_eq!(window_workspaces, target.with_state(|state| state.workspaces.clone()));
+        assert_eq!(target_workspaces, window.with_state(|state| state.workspaces.clone()));
 
         assert!(window.with_state(|state| state.layout_mode.is_floating()));
         assert!(target.with_state(|state| state.layout_mode.is_tiled()));
@@ -1729,14 +1729,14 @@ fn window_handle_swap_non_tiled_multi_output() {
 }
 
 #[test_log::test]
-fn window_handle_swap_swap_tag() {
+fn window_handle_swap_swap_workspace() {
     for_each_api(|lang| {
         let (mut fixture, output) = set_up();
 
-        let tag = Tag::new("2".to_string());
-        tag.set_active(true);
+        let workspace = Workspace::new("2".to_string());
+        workspace.set_active(true);
         output.with_state_mut(|state| {
-            state.add_tags([tag.clone()]);
+            state.add_workspaces([workspace.clone()]);
         });
 
         let id = fixture.add_client();
@@ -1745,10 +1745,10 @@ fn window_handle_swap_swap_tag() {
 
         let window = fixture.pinnacle().windows[0].clone();
         let target = fixture.pinnacle().windows[2].clone();
-        target.with_state_mut(|state| state.tags = std::iter::once(tag.clone()).collect());
+        target.with_state_mut(|state| state.workspaces = std::iter::once(workspace.clone()).collect());
 
-        let window_tags = window.with_state(|state| state.tags.clone());
-        let target_tags = target.with_state(|state| state.tags.clone());
+        let window_workspaces = window.with_state(|state| state.workspaces.clone());
+        let target_workspaces = target.with_state(|state| state.workspaces.clone());
 
         let window_id = window.with_state(|s| s.id.0);
         let target_id = target.with_state(|s| s.id.0);
@@ -1772,14 +1772,14 @@ fn window_handle_swap_swap_tag() {
         fixture.wait_client_configure(id);
         fixture.flush();
 
-        assert_eq!(window_tags, target.with_state(|state| state.tags.clone()));
+        assert_eq!(window_workspaces, target.with_state(|state| state.workspaces.clone()));
 
-        assert_eq!(target_tags, window.with_state(|state| state.tags.clone()));
+        assert_eq!(target_workspaces, window.with_state(|state| state.workspaces.clone()));
     })
 }
 
 #[test_log::test]
-fn window_handle_swap_swap_tag_multi_output() {
+fn window_handle_swap_swap_workspace_multi_output() {
     for_each_api(|lang| {
         let (mut fixture, _output1) = set_up();
 
@@ -1789,11 +1789,11 @@ fn window_handle_swap_swap_tag_multi_output() {
 
         let output2 = fixture.add_output(Rectangle::new((1920, 0).into(), (1920, 1080).into()));
         output2.with_state_mut(|state| {
-            let tag = Tag::new("2".to_string());
-            tag.set_active(true);
-            state.add_tags([tag, Tag::new("3".to_string())]);
+            let workspace = Workspace::new("2".to_string());
+            workspace.set_active(true);
+            state.add_workspaces([workspace, Workspace::new("3".to_string())]);
         });
-        let tags = output2.with_state(|state| state.tags.clone());
+        let workspaces = output2.with_state(|state| state.workspaces.clone());
 
         fixture.pinnacle().focus_output(&output2);
 
@@ -1801,7 +1801,7 @@ fn window_handle_swap_swap_tag_multi_output() {
 
         let window = fixture.pinnacle().windows[0].clone();
         let target = fixture.pinnacle().windows[1].clone();
-        target.with_state_mut(|state| state.tags = tags);
+        target.with_state_mut(|state| state.workspaces = workspaces);
 
         let window_id = window.with_state(|s| s.id.0);
         let target_id = target.with_state(|s| s.id.0);
@@ -1809,8 +1809,8 @@ fn window_handle_swap_swap_tag_multi_output() {
         let window_geo = fixture.pinnacle().space.element_geometry(&window);
         let target_geo = fixture.pinnacle().space.element_geometry(&target);
 
-        let window_tags = window.with_state(|state| state.tags.clone());
-        let target_tags = target.with_state(|state| state.tags.clone());
+        let window_workspaces = window.with_state(|state| state.workspaces.clone());
+        let target_workspaces = target.with_state(|state| state.workspaces.clone());
 
         match lang {
             Lang::Rust => fixture.spawn_blocking(move || {
@@ -1839,20 +1839,20 @@ fn window_handle_swap_swap_tag_multi_output() {
             fixture.pinnacle().space.element_geometry(&window)
         );
 
-        assert_eq!(window_tags, target.with_state(|state| state.tags.clone()));
-        assert_eq!(target_tags, window.with_state(|state| state.tags.clone()));
+        assert_eq!(window_workspaces, target.with_state(|state| state.workspaces.clone()));
+        assert_eq!(target_workspaces, window.with_state(|state| state.workspaces.clone()));
     })
 }
 
 #[test_log::test]
-fn window_handle_swap_swap_inactive_tag() {
+fn window_handle_swap_swap_inactive_workspace() {
     for_each_api(|lang| {
         let (mut fixture, output) = set_up();
 
-        let tag = Tag::new("2".to_string());
-        tag.set_active(false);
+        let workspace = Workspace::new("2".to_string());
+        workspace.set_active(false);
         output.with_state_mut(|state| {
-            state.add_tags([tag.clone()]);
+            state.add_workspaces([workspace.clone()]);
         });
 
         let id = fixture.add_client();
@@ -1861,10 +1861,10 @@ fn window_handle_swap_swap_inactive_tag() {
 
         let window = fixture.pinnacle().windows[0].clone();
         let target = fixture.pinnacle().windows[2].clone();
-        target.with_state_mut(|state| state.tags = std::iter::once(tag.clone()).collect());
+        target.with_state_mut(|state| state.workspaces = std::iter::once(workspace.clone()).collect());
 
-        let window_tags = window.with_state(|state| state.tags.clone());
-        let target_tags = target.with_state(|state| state.tags.clone());
+        let window_workspaces = window.with_state(|state| state.workspaces.clone());
+        let target_workspaces = target.with_state(|state| state.workspaces.clone());
 
         let window_id = window.with_state(|s| s.id.0);
         let target_id = target.with_state(|s| s.id.0);
@@ -1888,14 +1888,14 @@ fn window_handle_swap_swap_inactive_tag() {
         fixture.wait_client_configure(id);
         fixture.flush();
 
-        assert_eq!(window_tags, target.with_state(|state| state.tags.clone()));
+        assert_eq!(window_workspaces, target.with_state(|state| state.workspaces.clone()));
 
-        assert_eq!(target_tags, window.with_state(|state| state.tags.clone()));
+        assert_eq!(target_workspaces, window.with_state(|state| state.workspaces.clone()));
     })
 }
 
 #[test_log::test]
-fn window_handle_swap_swap_inactive_tag_multi_output() {
+fn window_handle_swap_swap_inactive_workspace_multi_output() {
     for_each_api(|lang| {
         let (mut fixture, _output1) = set_up();
 
@@ -1904,11 +1904,11 @@ fn window_handle_swap_swap_inactive_tag_multi_output() {
         let mut surfaces = fixture.spawn_windows(1, client_id);
 
         let output2 = fixture.add_output(Rectangle::new((1920, 0).into(), (1920, 1080).into()));
-        let inactive_tag = Tag::new("3".to_string());
+        let inactive_workspace = Workspace::new("3".to_string());
         output2.with_state_mut(|state| {
-            let tag = Tag::new("2".to_string());
-            tag.set_active(true);
-            state.add_tags([tag, inactive_tag.clone()]);
+            let workspace = Workspace::new("2".to_string());
+            workspace.set_active(true);
+            state.add_workspaces([workspace, inactive_workspace.clone()]);
         });
 
         fixture.pinnacle().focus_output(&output2);
@@ -1917,13 +1917,13 @@ fn window_handle_swap_swap_inactive_tag_multi_output() {
 
         let window = fixture.pinnacle().windows[0].clone();
         let target = fixture.pinnacle().windows[1].clone();
-        target.with_state_mut(|state| state.tags = std::iter::once(inactive_tag.clone()).collect());
+        target.with_state_mut(|state| state.workspaces = std::iter::once(inactive_workspace.clone()).collect());
 
         let window_id = window.with_state(|s| s.id.0);
         let target_id = target.with_state(|s| s.id.0);
 
-        let window_tags = window.with_state(|state| state.tags.clone());
-        let target_tags = target.with_state(|state| state.tags.clone());
+        let window_workspaces = window.with_state(|state| state.workspaces.clone());
+        let target_workspaces = target.with_state(|state| state.workspaces.clone());
 
         match lang {
             Lang::Rust => fixture.spawn_blocking(move || {
@@ -1943,8 +1943,8 @@ fn window_handle_swap_swap_inactive_tag_multi_output() {
 
         fixture.dispatch_until(|fixture| !fixture.pinnacle().layout_state.pending_swap);
 
-        assert_eq!(window_tags, target.with_state(|state| state.tags.clone()));
-        assert_eq!(target_tags, window.with_state(|state| state.tags.clone()));
+        assert_eq!(window_workspaces, target.with_state(|state| state.workspaces.clone()));
+        assert_eq!(target_workspaces, window.with_state(|state| state.workspaces.clone()));
     })
 }
 

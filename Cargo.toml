@@ -4,11 +4,8 @@ members = [
     "api/rust",
     "wlcs_pinnacle",
     "api/lua/build",
-    # snowcap
-    "snowcap",
+    # Wayland protocol bindings for external window decorations
     "snowcap/snowcap-protocols",
-    "snowcap/api/rust",
-    "snowcap/snowcap-api-defs",
 ]
 exclude = [
     "lcat", # The docs building repo is currently cloned into this repo in CI
@@ -19,7 +16,7 @@ version = "0.2.2"
 authors = ["Ottatop <ottatop1227@gmail.com>"]
 edition = "2024"
 repository = "https://github.com/pinnacle-comp/pinnacle/"
-rust-version = "1.88"
+rust-version = "1.92"
 
 [workspace.dependencies]
 anyhow = { version = "1.0.101", features = ["backtrace"] }
@@ -31,8 +28,6 @@ indexmap = "2.13.0"
 passfd = "0.1.6"
 pinnacle-api-defs = { path = "./pinnacle-api-defs" }
 prost = "0.13.5"
-snowcap-api-defs = { path = "./snowcap/snowcap-api-defs" }
-snowcap-derive = { path = "./snowcap/snowcap-derive" }
 snowcap-protocols = { path = "./snowcap/snowcap-protocols" }
 tempfile = "3.25.0"
 thiserror = "2.0.18"
@@ -113,8 +108,14 @@ async-channel = "2.5.0"
 bimap = "0.6.3"
 bitflags = { workspace = true }
 bytemuck = "1.25.0"
+chrono = { version = "0.4", default-features = false, features = ["clock"] }
 clap = { workspace = true }
+slint = { version = "1.18", default-features = false, features = ["std", "compat-1-2", "renderer-software", "software-renderer-systemfonts", "software-renderer-path"] }
 clap_complete = "4.5.66"
+image = { version = "0.25", default-features = false, features = ["jpeg", "png", "webp"] }
+material-colors = "0.4"
+zbus = "5"
+resvg = "0.48"
 cliclack = "0.3.8"
 drm-sys = "0.8.0"
 gag = "1.0.0"
@@ -129,8 +130,6 @@ sd-notify = "0.4.5"
 serde = { version = "1.0.228", features = ["derive"] }
 shellexpand = { version = "3.1.1", features = ["path"] }
 slab_tree = { git = "https://github.com/Ottatop/slab-tree", rev = "d6adbbb" } # impl traits for NodeRef
-snowcap = { path = "./snowcap", optional = true }
-snowcap-api = { path = "./snowcap/api/rust", optional = true }
 snowcap-protocols = { workspace = true }
 sysinfo = "0.38.1"
 taffy = "=0.8.2" # Patched below for rounding fixes
@@ -150,6 +149,7 @@ xdg = { workspace = true }
 xkbcommon = { workspace = true }
 
 [build-dependencies]
+slint-build = "1.18"
 vergen-gitcl = { version = "9.1.0", features = ["rustc", "cargo", "si"] }
 
 [dev-dependencies]
@@ -168,32 +168,38 @@ wayland-client = "0.31.12"
 calloop-wayland-source = "0.4.1"
 
 [features]
-default = ["snowcap"]
-snowcap = ["pinnacle-api/snowcap", "dep:snowcap", "dep:snowcap-api"]
+default = []
 testing = ["smithay/renderer_test"]
 wlcs = ["testing"]
 tracy = [
     "profiling/profile-with-tracy",
     "tracy-client/default",
-    "snowcap?/tracy",
 ]
 tracy-ondemand = [
     "tracy",
     "tracy-client/ondemand",
     "tracy-client/manual-lifetime",
-    "snowcap?/tracy-ondemand",
 ]
-tracy-alloc = ["tracy", "snowcap?/tracy-alloc"]
+tracy-alloc = ["tracy"]
 
 [profile.release]
 debug = "line-tables-only"
 lto = "thin"
 
 # These are quite slow in debug mode
-[profile.dev.package."tiny-skia"]
+[profile.dev.package.image]
 opt-level = 3
-
-[profile.dev.package."cosmic-text"]
+[profile.dev.package.zune-jpeg]
+opt-level = 3
+[profile.dev.package.material-colors]
+opt-level = 3
+[profile.dev.package.i-slint-core]
+opt-level = 3
+[profile.dev.package.resvg]
+opt-level = 3
+[profile.dev.package.usvg]
+opt-level = 3
+[profile.dev.package.tiny-skia]
 opt-level = 3
 
 [lints]
@@ -201,4 +207,3 @@ workspace = true
 
 [patch.crates-io]
 taffy = { git = "https://github.com/Ottatop/taffy", rev = "dcdaa42" } # Rounding fixes
-softbuffer = { git = "https://github.com/Ottatop/softbuffer", rev = "cd65c9e" }

@@ -22,7 +22,7 @@
 //!
 
 use crate::common::fixture::Fixture;
-use pinnacle::{state::WithState, tag::Tag};
+use pinnacle::{state::WithState, workspace::Workspace};
 use pinnacle_api::layout::{LayoutGenerator as _, generators::MasterStack};
 
 use smithay::{output::Output, utils::Rectangle};
@@ -32,16 +32,16 @@ fn set_up() -> (Fixture, Output, Output) {
 
     let output = fixture.add_output(Rectangle::new((0, 0).into(), (1920, 1080).into()));
     output.with_state_mut(|state| {
-        let tag = Tag::new("1".to_string());
-        tag.set_active(true);
-        state.add_tags([tag]);
+        let workspace = Workspace::new("1".to_string());
+        workspace.set_active(true);
+        state.add_workspaces([workspace]);
     });
 
     let output2 = fixture.add_output(Rectangle::new((1920, 1080).into(), (1920, 1080).into()));
     output2.with_state_mut(|state| {
-        let tag = Tag::new("2".to_string());
-        tag.set_active(true);
-        state.add_tags([tag]);
+        let workspace = Workspace::new("2".to_string());
+        workspace.set_active(true);
+        state.add_workspaces([workspace]);
     });
 
     fixture.pinnacle().focus_output(&output);
@@ -79,7 +79,7 @@ fn mapped_fullscreen() {
     fixture.wait_client_configure(client_id);
     fixture.flush();
 
-    let tags = fixture.pinnacle().windows[0].with_state(|state| state.tags.clone());
+    let workspaces = fixture.pinnacle().windows[0].with_state(|state| state.workspaces.clone());
 
     assert!(
         fixture
@@ -87,7 +87,7 @@ fn mapped_fullscreen() {
             .window_for_surface(surface)
             .fullscreen
     );
-    assert_eq!(output.with_state(|state| state.tags.clone()), tags);
+    assert_eq!(output.with_state(|state| state.workspaces.clone()), workspaces);
 
     fixture
         .client(client_id)
@@ -140,7 +140,7 @@ fn mapped_fullscreen_twice() {
     fixture.wait_client_configure(client_id);
     fixture.flush();
 
-    let tags = fixture.pinnacle().windows[0].with_state(|state| state.tags.clone());
+    let workspaces = fixture.pinnacle().windows[0].with_state(|state| state.workspaces.clone());
 
     assert!(
         fixture
@@ -148,7 +148,7 @@ fn mapped_fullscreen_twice() {
             .window_for_surface(surface)
             .fullscreen
     );
-    assert_eq!(output.with_state(|state| state.tags.clone()), tags);
+    assert_eq!(output.with_state(|state| state.workspaces.clone()), workspaces);
 
     fixture
         .client(client_id)
@@ -178,7 +178,7 @@ fn mapped_fullscreen_twice_two_outputs() {
     fixture.wait_client_configure(client_id);
     fixture.flush();
 
-    let tags = fixture.pinnacle().windows[0].with_state(|state| state.tags.clone());
+    let workspaces = fixture.pinnacle().windows[0].with_state(|state| state.workspaces.clone());
 
     assert!(
         fixture
@@ -186,7 +186,7 @@ fn mapped_fullscreen_twice_two_outputs() {
             .window_for_surface(surface)
             .fullscreen
     );
-    assert_eq!(output.with_state(|state| state.tags.clone()), tags);
+    assert_eq!(output.with_state(|state| state.workspaces.clone()), workspaces);
 
     fixture
         .client(client_id)
@@ -222,7 +222,7 @@ fn mapped_set_fullscreen_on_output() {
     fixture.wait_client_configure(client_id);
     fixture.flush();
 
-    let tags = fixture.pinnacle().windows[0].with_state(|state| state.tags.clone());
+    let workspaces = fixture.pinnacle().windows[0].with_state(|state| state.workspaces.clone());
 
     assert!(
         fixture
@@ -230,7 +230,7 @@ fn mapped_set_fullscreen_on_output() {
             .window_for_surface(surface)
             .fullscreen
     );
-    assert_eq!(output.with_state(|state| state.tags.clone()), tags);
+    assert_eq!(output.with_state(|state| state.workspaces.clone()), workspaces);
 }
 
 #[test_log::test]
@@ -251,7 +251,7 @@ fn mapped_set_fullscreen_on_output_update_floating_loc() {
     fixture.wait_client_configure(client_id);
     fixture.flush();
 
-    let tags = fixture.pinnacle().windows[0].with_state(|state| state.tags.clone());
+    let workspaces = fixture.pinnacle().windows[0].with_state(|state| state.workspaces.clone());
 
     assert!(
         fixture
@@ -259,7 +259,7 @@ fn mapped_set_fullscreen_on_output_update_floating_loc() {
             .window_for_surface(&surface)
             .fullscreen
     );
-    assert_eq!(output.with_state(|state| state.tags.clone()), tags);
+    assert_eq!(output.with_state(|state| state.workspaces.clone()), workspaces);
 
     fixture
         .client(client_id)
@@ -288,7 +288,7 @@ fn unmapped_set_fullscreen_on_output() {
     let surface = fixture
         .spawn_floating_window_with(client_id, (500, 500), |w| w.set_fullscreen(outputs.get(1)));
 
-    let tags = fixture.pinnacle().windows[0].with_state(|state| state.tags.clone());
+    let workspaces = fixture.pinnacle().windows[0].with_state(|state| state.workspaces.clone());
 
     assert!(
         fixture
@@ -296,7 +296,7 @@ fn unmapped_set_fullscreen_on_output() {
             .window_for_surface(&surface)
             .fullscreen
     );
-    assert_eq!(output.with_state(|state| state.tags.clone()), tags);
+    assert_eq!(output.with_state(|state| state.workspaces.clone()), workspaces);
 }
 
 #[test_log::test]
@@ -316,7 +316,7 @@ fn mapped_set_maximized() {
     fixture.wait_client_configure(client_id);
     fixture.flush();
 
-    let tags = fixture.pinnacle().windows[0].with_state(|state| state.tags.clone());
+    let workspaces = fixture.pinnacle().windows[0].with_state(|state| state.workspaces.clone());
 
     assert!(
         fixture
@@ -324,7 +324,7 @@ fn mapped_set_maximized() {
             .window_for_surface(surface)
             .maximized
     );
-    assert_eq!(output.with_state(|state| state.tags.clone()), tags);
+    assert_eq!(output.with_state(|state| state.workspaces.clone()), workspaces);
 
     fixture
         .client(client_id)
@@ -376,7 +376,7 @@ fn mapped_set_maximized_twice() {
     fixture.wait_client_configure(client_id);
     fixture.flush();
 
-    let tags = fixture.pinnacle().windows[0].with_state(|state| state.tags.clone());
+    let workspaces = fixture.pinnacle().windows[0].with_state(|state| state.workspaces.clone());
 
     assert!(
         fixture
@@ -384,7 +384,7 @@ fn mapped_set_maximized_twice() {
             .window_for_surface(surface)
             .maximized
     );
-    assert_eq!(output.with_state(|state| state.tags.clone()), tags);
+    assert_eq!(output.with_state(|state| state.workspaces.clone()), workspaces);
 
     // If the surface was already maximized, the compositor will still emit a configure event with
     // the "maximized" state.

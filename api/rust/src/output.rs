@@ -18,7 +18,7 @@ use pinnacle_api_defs::pinnacle::{
             FocusRequest, GetEnabledRequest, GetFocusStackWindowIdsRequest, GetFocusedRequest,
             GetInfoRequest, GetLocRequest, GetLogicalSizeRequest, GetModesRequest,
             GetOutputsInDirRequest, GetPhysicalSizeRequest, GetPoweredRequest, GetRequest,
-            GetScaleRequest, GetTagIdsRequest, GetTransformRequest, SetLocRequest, SetModeRequest,
+            GetScaleRequest, GetWorkspaceIdsRequest, GetTransformRequest, SetLocRequest, SetModeRequest,
             SetModelineRequest, SetPoweredRequest, SetScaleRequest, SetTransformRequest,
             SetVrrRequest,
         },
@@ -30,7 +30,7 @@ use crate::{
     BlockOnTokio,
     client::Client,
     signal::{OutputSignal, SignalHandle},
-    tag::TagHandle,
+    workspace::WorkspaceHandle,
     util::{Batch, Direction, Point, Size},
     window::WindowHandle,
 };
@@ -117,18 +117,18 @@ pub async fn get_focused_async() -> Option<OutputHandle> {
 /// 2. Call `for_each` with any newly connected outputs.
 ///
 /// Note that `for_each` will *not* run with outputs that have been unplugged and replugged.
-/// This is to prevent duplicate setup. Instead, the compositor keeps track of any tags and
+/// This is to prevent duplicate setup. Instead, the compositor keeps track of any workspaces and
 /// state the output had when unplugged and restores them on replug. This may change in the future.
 ///
 /// # Examples
 ///
 /// ```no_run
 /// # use pinnacle_api::output;
-/// # use pinnacle_api::tag;
-/// // Add tags 1-3 to all outputs and set tag "1" to active
+/// # use pinnacle_api::workspace;
+/// // Add workspaces 1-3 to all outputs and set workspace "1" to active
 /// output::for_each_output(|op| {
-///     let mut tags = tag::add(op, ["1", "2", "3"]);
-///     tags.next().unwrap().set_active(true);
+///     let mut workspaces = workspace::add(op, ["1", "2", "3"]);
+///     workspaces.next().unwrap().set_active(true);
 /// });
 /// ```
 pub fn for_each_output(mut for_each: impl FnMut(&OutputHandle) + Send + 'static) {
@@ -594,7 +594,7 @@ impl OutputHandle {
 
     /// Powers on or off this output.
     ///
-    /// This will not remove it from the space and your tags and windows
+    /// This will not remove it from the space and your workspaces and windows
     /// will still be interactable; only the monitor is turned off.
     pub fn set_powered(&self, powered: bool) {
         Client::output()
@@ -612,7 +612,7 @@ impl OutputHandle {
 
     /// Toggles the power on this output.
     ///
-    /// This will not remove it from the space and your tags and windows
+    /// This will not remove it from the space and your workspaces and windows
     /// will still be interactable; only the monitor is turned off.
     pub fn toggle_powered(&self) {
         Client::output()
@@ -872,47 +872,47 @@ impl OutputHandle {
             .focused
     }
 
-    /// Gets handles to all tags on this output.
-    pub fn tags(&self) -> impl Iterator<Item = TagHandle> + use<> {
-        self.tags_async().block_on_tokio()
+    /// Gets handles to all workspaces on this output.
+    pub fn workspaces(&self) -> impl Iterator<Item = WorkspaceHandle> + use<> {
+        self.workspaces_async().block_on_tokio()
     }
 
-    /// Async impl for [`Self::tags`].
-    pub async fn tags_async(&self) -> impl Iterator<Item = TagHandle> + use<> {
+    /// Async impl for [`Self::workspaces`].
+    pub async fn workspaces_async(&self) -> impl Iterator<Item = WorkspaceHandle> + use<> {
         Client::output()
-            .get_tag_ids(GetTagIdsRequest {
+            .get_workspace_ids(GetWorkspaceIdsRequest {
                 output_name: self.name(),
             })
             .await
             .unwrap()
             .into_inner()
-            .tag_ids
+            .workspace_ids
             .into_iter()
-            .map(|id| TagHandle { id })
+            .map(|id| WorkspaceHandle { id })
     }
 
-    /// Gets handles to all active tags on this output.
-    pub fn active_tags(&self) -> impl Iterator<Item = TagHandle> + use<> {
-        self.active_tags_async().block_on_tokio()
+    /// Gets handles to all active workspaces on this output.
+    pub fn active_workspaces(&self) -> impl Iterator<Item = WorkspaceHandle> + use<> {
+        self.active_workspaces_async().block_on_tokio()
     }
 
-    /// Async impl for [`Self::active_tags`].
-    pub async fn active_tags_async(&self) -> impl Iterator<Item = TagHandle> + use<> {
-        self.tags_async()
+    /// Async impl for [`Self::active_workspaces`].
+    pub async fn active_workspaces_async(&self) -> impl Iterator<Item = WorkspaceHandle> + use<> {
+        self.workspaces_async()
             .await
-            .batch_filter(|tag| tag.active_async().boxed(), |is_active| is_active)
+            .batch_filter(|workspace| workspace.active_async().boxed(), |is_active| is_active)
     }
 
-    /// Gets handles to all inactive tags on this output.
-    pub fn inactive_tags(&self) -> impl Iterator<Item = TagHandle> + use<> {
-        self.inactive_tags_async().block_on_tokio()
+    /// Gets handles to all inactive workspaces on this output.
+    pub fn inactive_workspaces(&self) -> impl Iterator<Item = WorkspaceHandle> + use<> {
+        self.inactive_workspaces_async().block_on_tokio()
     }
 
-    /// Async impl for [`Self::active_tags`].
-    pub async fn inactive_tags_async(&self) -> impl Iterator<Item = TagHandle> + use<> {
-        self.tags_async()
+    /// Async impl for [`Self::active_workspaces`].
+    pub async fn inactive_workspaces_async(&self) -> impl Iterator<Item = WorkspaceHandle> + use<> {
+        self.workspaces_async()
             .await
-            .batch_filter(|tag| tag.active_async().boxed(), |is_active| !is_active)
+            .batch_filter(|workspace| workspace.active_async().boxed(), |is_active| !is_active)
     }
 
     /// Gets this output's current scale.
@@ -958,7 +958,7 @@ impl OutputHandle {
     /// that focuses the previously focused window.
     ///
     /// This will return the focus stack containing *all* windows on this output.
-    /// If you only want windows on active tags, see
+    /// If you only want windows on active workspaces, see
     /// [`OutputHandle::keyboard_focus_stack_visible`].
     pub fn keyboard_focus_stack(&self) -> impl Iterator<Item = WindowHandle> + use<> {
         self.keyboard_focus_stack_async().block_on_tokio()
@@ -978,13 +978,13 @@ impl OutputHandle {
             .map(|id| WindowHandle { id })
     }
 
-    /// Gets this window's keyboard focus stack with only windows on active tags.
+    /// Gets this window's keyboard focus stack with only windows on active workspaces.
     ///
     /// Pinnacle keeps a stack of the windows that get keyboard focus.
     /// This can be used, for example, for an `Alt + Tab`-style keybind
     /// that focuses the previously focused window.
     ///
-    /// This will return the focus stack containing only windows on active tags on this output.
+    /// This will return the focus stack containing only windows on active workspaces on this output.
     /// If you want *all* windows on this output, see [`OutputHandle::keyboard_focus_stack`].
     pub fn keyboard_focus_stack_visible(&self) -> impl Iterator<Item = WindowHandle> + use<> {
         self.keyboard_focus_stack_visible_async().block_on_tokio()
@@ -996,7 +996,7 @@ impl OutputHandle {
     ) -> impl Iterator<Item = WindowHandle> + use<> {
         self.keyboard_focus_stack_async()
             .await
-            .batch_filter(|win| win.is_on_active_tag_async().boxed(), |is_on| is_on)
+            .batch_filter(|win| win.is_on_active_workspace_async().boxed(), |is_on| is_on)
     }
 
     /// Gets whether this output is enabled.

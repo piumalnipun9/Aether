@@ -57,7 +57,7 @@ impl XdgShellHandler for State {
         self.pinnacle.unmapped_windows.push(Unmapped {
             window,
             activation_token_data: None,
-            state: UnmappedState::WaitingForTags {
+            state: UnmappedState::WaitingForWorkspaces {
                 client_requests: ClientRequests::default(),
             },
         });
@@ -251,7 +251,7 @@ impl XdgShellHandler for State {
                 .iter()
                 .find(|output| output.owns(&wl_output))
                 .filter(|output| {
-                    output.with_state(|state| !state.tags.is_empty())
+                    output.with_state(|state| !state.workspaces.is_empty())
                         && self.pinnacle.space.output_geometry(output).is_some()
                 })
                 .cloned()
@@ -285,11 +285,11 @@ impl XdgShellHandler for State {
             .unmapped_window_for_surface_mut(surface.wl_surface())
         {
             if let Some(output) = requested_output {
-                unmapped.window.set_tags_to_output(&output);
+                unmapped.window.set_workspaces_to_output(&output);
             }
 
             match &mut unmapped.state {
-                UnmappedState::WaitingForTags { client_requests } => {
+                UnmappedState::WaitingForWorkspaces { client_requests } => {
                     client_requests.layout_mode = Some(FullscreenOrMaximized::Fullscreen);
                 }
                 UnmappedState::WaitingForRules {
@@ -331,7 +331,7 @@ impl XdgShellHandler for State {
             .unmapped_window_for_surface_mut(surface.wl_surface())
         {
             match &mut unmapped.state {
-                UnmappedState::WaitingForTags { client_requests } => {
+                UnmappedState::WaitingForWorkspaces { client_requests } => {
                     client_requests
                         .layout_mode
                         .take_if(|mode| matches!(mode, FullscreenOrMaximized::Fullscreen));
@@ -370,7 +370,7 @@ impl XdgShellHandler for State {
             .unmapped_window_for_surface_mut(surface.wl_surface())
         {
             match &mut unmapped.state {
-                UnmappedState::WaitingForTags { client_requests } => {
+                UnmappedState::WaitingForWorkspaces { client_requests } => {
                     client_requests.layout_mode = Some(FullscreenOrMaximized::Maximized);
                 }
                 UnmappedState::WaitingForRules {
@@ -410,7 +410,7 @@ impl XdgShellHandler for State {
             .unmapped_window_for_surface_mut(surface.wl_surface())
         {
             match &mut unmapped.state {
-                UnmappedState::WaitingForTags { client_requests } => {
+                UnmappedState::WaitingForWorkspaces { client_requests } => {
                     client_requests
                         .layout_mode
                         .take_if(|mode| matches!(mode, FullscreenOrMaximized::Maximized));

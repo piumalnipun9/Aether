@@ -24,17 +24,17 @@ impl ForeignToplevelHandler for State {
         self.pinnacle.keyboard_focus_stack.set_focus(window.clone());
         self.pinnacle.raise_window(window.clone());
 
-        if !window.is_on_active_tag() {
-            let new_active_tag = window.with_state(|state| {
+        if !window.is_on_active_workspace() {
+            let new_active_workspace = window.with_state(|state| {
                 state
-                    .tags
+                    .workspaces
                     .iter()
-                    .min_by_key(|tag| tag.id().to_inner())
+                    .min_by_key(|workspace| workspace.id().to_inner())
                     .cloned()
             });
 
-            if let Some(tag) = new_active_tag {
-                crate::api::tag::switch_to(self, &tag);
+            if let Some(workspace) = new_active_workspace {
+                crate::api::workspace::switch_to(self, &workspace);
             }
         } else {
             self.schedule_render(&output);

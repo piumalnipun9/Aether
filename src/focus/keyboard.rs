@@ -7,12 +7,16 @@ use smithay::{
         Seat,
         keyboard::{KeyboardTarget, KeysymHandle, ModifiersState},
     },
+    output::WeakOutput,
     reexports::wayland_server::{Resource, protocol::wl_surface::WlSurface},
     utils::{IsAlive, Serial},
     wayland::{seat::WaylandFocus, session_lock::LockSurface},
 };
 
-use crate::{state::State, window::WindowElement};
+use crate::{
+    state::{State, WithState},
+    window::WindowElement,
+};
 
 /// Keyboard focusable objects
 #[derive(Debug, Clone, PartialEq)]
@@ -21,6 +25,8 @@ pub enum KeyboardFocusTarget {
     Popup(PopupKind),
     LayerSurface(LayerSurface),
     LockSurface(LockSurface),
+    /// A panel of the shell on this output.
+    QuickSettings(WeakOutput),
 }
 
 impl KeyboardTarget<State> for KeyboardFocusTarget {
@@ -44,6 +50,7 @@ impl KeyboardTarget<State> for KeyboardFocusTarget {
             KeyboardFocusTarget::LockSurface(lock) => {
                 KeyboardTarget::enter(lock.wl_surface(), seat, data, keys, serial);
             }
+            KeyboardFocusTarget::QuickSettings(_) => (),
         }
     }
 
@@ -61,6 +68,7 @@ impl KeyboardTarget<State> for KeyboardFocusTarget {
             KeyboardFocusTarget::LockSurface(lock) => {
                 KeyboardTarget::leave(lock.wl_surface(), seat, data, serial);
             }
+            KeyboardFocusTarget::QuickSettings(_) => (),
         }
     }
 
@@ -86,6 +94,25 @@ impl KeyboardTarget<State> for KeyboardFocusTarget {
             KeyboardFocusTarget::LockSurface(lock) => {
                 KeyboardTarget::key(lock.wl_surface(), seat, data, key, state, serial, time);
             }
+            KeyboardFocusTarget::QuickSettings(output) => {
+                if let Some(output) = output.upgrade() {
+                    let pressed = state == KeyState::Pressed;
+                    output.with_state(|state| {
+                        if let Some(panel) = state.panel.as_ref() {
+                            panel.key(&key, pressed);
+                        }
+                        if let Some(clock) = state.clock.as_ref() {
+                            clock.key(&key, pressed);
+                        }
+                        if let Some(launcher) = state.launcher.as_ref() {
+                            launcher.key(&key, pressed);
+                        }
+                        if let Some(settings) = state.settings.as_ref() {
+                            settings.key(&key, pressed);
+                        }
+                    });
+                }
+            }
         }
     }
 
@@ -109,6 +136,7 @@ impl KeyboardTarget<State> for KeyboardFocusTarget {
             KeyboardFocusTarget::LockSurface(lock) => {
                 KeyboardTarget::modifiers(lock.wl_surface(), seat, data, modifiers, serial);
             }
+            KeyboardFocusTarget::QuickSettings(_) => (),
         }
     }
 }
@@ -120,6 +148,7 @@ impl IsAlive for KeyboardFocusTarget {
             KeyboardFocusTarget::Popup(popup) => popup.alive(),
             KeyboardFocusTarget::LayerSurface(surf) => surf.alive(),
             KeyboardFocusTarget::LockSurface(lock) => lock.alive(),
+            KeyboardFocusTarget::QuickSettings(output) => output.is_alive(),
         }
     }
 }
@@ -131,6 +160,7 @@ impl WaylandFocus for KeyboardFocusTarget {
             KeyboardFocusTarget::Popup(popup) => Some(Cow::Borrowed(popup.wl_surface())),
             KeyboardFocusTarget::LayerSurface(surf) => Some(Cow::Borrowed(surf.wl_surface())),
             KeyboardFocusTarget::LockSurface(lock) => Some(Cow::Borrowed(lock.wl_surface())),
+            KeyboardFocusTarget::QuickSettings(_) => None,
         }
     }
 
@@ -147,6 +177,7 @@ impl WaylandFocus for KeyboardFocusTarget {
             KeyboardFocusTarget::LockSurface(lock) => {
                 lock.wl_surface().id().same_client_as(object_id)
             }
+            KeyboardFocusTarget::QuickSettings(_) => false,
         }
     }
 }

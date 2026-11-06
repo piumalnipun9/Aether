@@ -16,22 +16,22 @@ use smithay::reexports::wayland_server::{
 use wayland_backend::server::ClientId;
 
 use crate::state::{State, WithState};
-use crate::tag::{Tag, TagId};
+use crate::workspace::{Workspace, WorkspaceId};
 
 const VERSION: u32 = 1;
 
 pub trait ExtWorkspaceHandler {
     fn ext_workspace_manager_state(&mut self) -> &mut ExtWorkspaceManagerState;
-    fn activate_workspace(&mut self, id: TagId);
-    fn deactivate_workspace(&mut self, id: TagId);
-    fn remove_workspace(&mut self, id: TagId);
+    fn activate_workspace(&mut self, id: WorkspaceId);
+    fn deactivate_workspace(&mut self, id: WorkspaceId);
+    fn remove_workspace(&mut self, id: WorkspaceId);
     fn add_workspace(&mut self, output: &Output, name: String);
 }
 
 enum Action {
-    Activate(TagId),
-    Deactivate(TagId),
-    Remove(TagId),
+    Activate(WorkspaceId),
+    Deactivate(WorkspaceId),
+    Remove(WorkspaceId),
 }
 
 impl Action {
@@ -47,8 +47,8 @@ impl Action {
 pub struct ExtWorkspaceManagerState {
     display: DisplayHandle,
     instances: HashMap<ExtWorkspaceManagerV1, Vec<Action>>,
-    tag_groups: HashMap<Output, ExtWorkspaceGroupData>,
-    tags: HashMap<TagId, ExtWorkspaceData>,
+    workspace_groups: HashMap<Output, ExtWorkspaceGroupData>,
+    workspaces: HashMap<WorkspaceId, ExtWorkspaceData>,
 }
 
 struct ExtWorkspaceGroupData {
@@ -67,15 +67,15 @@ pub struct ExtWorkspaceGlobalData {
     filter: Box<dyn for<'c> Fn(&'c Client) -> bool + Send + Sync>,
 }
 
-fn tags_by_output<'a>(
+fn workspaces_by_output<'a>(
     outputs: impl Iterator<Item = &'a Output> + 'a,
-) -> impl Iterator<Item = (Output, Tag)> {
+) -> impl Iterator<Item = (Output, Workspace)> {
     outputs.flat_map(|output| {
         output.with_state(|outp| {
-            outp.tags
+            outp.workspaces
                 .clone()
                 .into_iter()
-                .map(|tag| (output.clone(), tag))
+                .map(|workspace| (output.clone(), workspace))
         })
     })
 }
@@ -87,7 +87,7 @@ pub fn on_output_bound(state: &mut State, output: &Output, wl_output: &WlOutput)
     let mut sent = false;
 
     let protocol_state = &mut state.pinnacle.ext_workspace_state;
-    if let Some(data) = protocol_state.tag_groups.get_mut(output) {
+    if let Some(data) = protocol_state.workspace_groups.get_mut(output) {
         for group in &mut data.instances {
             if group.client().as_ref() != Some(&client) {
                 continue;
@@ -116,23 +116,23 @@ pub fn refresh(state: &mut State) {
 
     let mut changed = false;
 
-    let mut seen_tags = HashMap::new();
-    for (output, tag) in tags_by_output(state.pinnacle.outputs.iter()) {
-        seen_tags.insert(tag.id(), output);
+    let mut seen_workspaces = HashMap::new();
+    for (output, workspace) in workspaces_by_output(state.pinnacle.outputs.iter()) {
+        seen_workspaces.insert(workspace.id(), output);
     }
 
-    protocol_state.tags.retain(|id, tag| {
-        if seen_tags.contains_key(id) {
+    protocol_state.workspaces.retain(|id, workspace| {
+        if seen_workspaces.contains_key(id) {
             return true;
         }
 
-        remove_workspace_instances(&protocol_state.tag_groups, tag);
+        remove_workspace_instances(&protocol_state.workspace_groups, workspace);
         changed = true;
         false
     });
 
-    // Remove tag groups for outputs that no longer exist.
-    protocol_state.tag_groups.retain(|output, data| {
+    // Remove workspace groups for outputs that no longer exist.
+    protocol_state.workspace_groups.retain(|output, data| {
         if state.pinnacle.outputs.contains(output) {
             return true;
         }
@@ -140,11 +140,11 @@ pub fn refresh(state: &mut State) {
         for group in &data.instances {
             // Send workspace_leave for all workspaces in this group with matching manager.
             let manager: &ExtWorkspaceManagerV1 = group.data().unwrap();
-            for tag in protocol_state.tags.values() {
-                if &tag.output == output {
-                    for tag in &tag.instances {
-                        if tag.data() == Some(manager) {
-                            group.workspace_leave(tag);
+            for workspace in protocol_state.workspaces.values() {
+                if &workspace.output == output {
+                    for workspace in &workspace.instances {
+                        if workspace.data() == Some(manager) {
+                            group.workspace_leave(workspace);
                         }
                     }
                 }
@@ -157,12 +157,12 @@ pub fn refresh(state: &mut State) {
         false
     });
 
-    // Update existing tags and create new ones.
-    for (output, tag) in tags_by_output(state.pinnacle.outputs.iter()) {
-        changed |= refresh_workspace(protocol_state, &output, &tag);
+    // Update existing workspaces and create new ones.
+    for (output, workspace) in workspaces_by_output(state.pinnacle.outputs.iter()) {
+        changed |= refresh_workspace(protocol_state, &output, &workspace);
     }
 
-    // Update tag groups and create new ones, sending workspace_enter events as needed.
+    // Update workspace groups and create new ones, sending workspace_enter events as needed.
     for output in &state.pinnacle.outputs {
         changed |= refresh_workspace_group(protocol_state, output);
     }
@@ -175,9 +175,9 @@ pub fn refresh(state: &mut State) {
 }
 
 fn refresh_workspace_group(protocol_state: &mut ExtWorkspaceManagerState, output: &Output) -> bool {
-    if protocol_state.tag_groups.contains_key(output) {
-        // Existing tag group. Nothing can actually change since our tag groups are tied
-        // to an output. That is, a tag group is the set of tags assigned to an output.
+    if protocol_state.workspace_groups.contains_key(output) {
+        // Existing workspace group. Nothing can actually change since our workspace groups are tied
+        // to an output. That is, a workspace group is the set of workspaces assigned to an output.
         return false;
     }
 
@@ -196,11 +196,11 @@ fn refresh_workspace_group(protocol_state: &mut ExtWorkspaceManagerState, output
     // Send workspace_enter for all existing workspaces on this output.
     for group in &data.instances {
         let manager: &ExtWorkspaceManagerV1 = group.data().unwrap();
-        for (_, tag_data) in protocol_state.tags.iter() {
-            if &tag_data.output != output {
+        for (_, workspace_data) in protocol_state.workspaces.iter() {
+            if &workspace_data.output != output {
                 continue;
             }
-            for workspace_handle in &tag_data.instances {
+            for workspace_handle in &workspace_data.instances {
                 if workspace_handle.data() == Some(manager) {
                     group.workspace_enter(workspace_handle);
                 }
@@ -208,16 +208,16 @@ fn refresh_workspace_group(protocol_state: &mut ExtWorkspaceManagerState, output
         }
     }
 
-    protocol_state.tag_groups.insert(output.clone(), data);
+    protocol_state.workspace_groups.insert(output.clone(), data);
     true
 }
 
 fn send_workspace_enter_leave(
-    tag_groups: &HashMap<Output, ExtWorkspaceGroupData>,
+    workspace_groups: &HashMap<Output, ExtWorkspaceGroupData>,
     data: &ExtWorkspaceData,
     enter: bool,
 ) {
-    if let Some(group_data) = tag_groups.get(&data.output) {
+    if let Some(group_data) = workspace_groups.get(&data.output) {
         for group in &group_data.instances {
             let manager: &ExtWorkspaceManagerV1 = group.data().unwrap();
             for workspace in &data.instances {
@@ -247,14 +247,14 @@ fn remove_workspace_instances(
 fn refresh_workspace(
     protocol_state: &mut ExtWorkspaceManagerState,
     output: &Output,
-    tag: &Tag,
+    workspace: &Workspace,
 ) -> bool {
     let mut state = ext_workspace_handle_v1::State::empty();
-    if tag.active() {
+    if workspace.active() {
         state |= ext_workspace_handle_v1::State::Active;
     }
 
-    match protocol_state.tags.entry(tag.id()) {
+    match protocol_state.workspaces.entry(workspace.id()) {
         Entry::Occupied(entry) => {
             // Existing workspace, check if anything changed.
             let data = entry.into_mut();
@@ -267,7 +267,7 @@ fn refresh_workspace(
 
             let mut output_changed = false;
             if &data.output != output {
-                send_workspace_enter_leave(&protocol_state.tag_groups, data, false);
+                send_workspace_enter_leave(&protocol_state.workspace_groups, data, false);
                 data.output = output.clone();
                 output_changed = true;
             }
@@ -276,7 +276,7 @@ fn refresh_workspace(
                 // Send workspace_enter to the new output's group. If the group doesn't exist yet
                 // (new groups are created after refreshing workspaces), then workspace_enter() will
                 // be sent when the group is created.
-                send_workspace_enter_leave(&protocol_state.tag_groups, data, true);
+                send_workspace_enter_leave(&protocol_state.workspace_groups, data, true);
             }
 
             if state_changed {
@@ -292,8 +292,8 @@ fn refresh_workspace(
         Entry::Vacant(entry) => {
             // New workspace, start tracking it.
             let mut data = ExtWorkspaceData {
-                id: tag.id().to_string(),
-                name: tag.name(),
+                id: workspace.id().to_string(),
+                name: workspace.name(),
                 state,
                 instances: Vec::new(),
                 output: output.clone(),
@@ -305,7 +305,7 @@ fn refresh_workspace(
                 }
             }
 
-            send_workspace_enter_leave(&protocol_state.tag_groups, &data, true);
+            send_workspace_enter_leave(&protocol_state.workspace_groups, &data, true);
             entry.insert(data);
             true
         }
@@ -392,8 +392,8 @@ impl ExtWorkspaceManagerState {
         display.create_global::<D, ExtWorkspaceManagerV1, _>(VERSION, global_data);
         Self {
             instances: HashMap::new(),
-            tag_groups: HashMap::new(),
-            tags: HashMap::new(),
+            workspace_groups: HashMap::new(),
+            workspaces: HashMap::new(),
             display: display.clone(),
         }
     }
@@ -420,20 +420,20 @@ where
         let state = state.ext_workspace_manager_state();
 
         // Send existing workspaces to the new client.
-        let mut new_tags: HashMap<_, Vec<_>> = HashMap::new();
-        for data in state.tags.values_mut() {
+        let mut new_workspaces: HashMap<_, Vec<_>> = HashMap::new();
+        for data in state.workspaces.values_mut() {
             let output = data.output.clone();
-            let tag = data.add_instance::<State>(handle, client, &manager);
+            let workspace = data.add_instance::<State>(handle, client, &manager);
 
-            new_tags.entry(output).or_default().push(tag);
+            new_workspaces.entry(output).or_default().push(workspace);
         }
 
         // Create workspace groups for all outputs.
-        for (output, group_data) in &mut state.tag_groups {
+        for (output, group_data) in &mut state.workspace_groups {
             let group = group_data.add_instance::<State>(handle, client, &manager, output);
 
-            for tag in new_tags.get(output).into_iter().flatten() {
-                group.workspace_enter(tag);
+            for workspace in new_workspaces.get(output).into_iter().flatten() {
+                group.workspace_enter(workspace);
             }
         }
 
@@ -482,12 +482,12 @@ where
                 let state = state.ext_workspace_manager_state();
                 state.instances.retain(|x, _| x != resource);
 
-                for data in state.tag_groups.values_mut() {
+                for data in state.workspace_groups.values_mut() {
                     data.instances
                         .retain(|instance| instance.data() != Some(resource));
                 }
 
-                for data in state.tags.values_mut() {
+                for data in state.workspaces.values_mut() {
                     data.instances
                         .retain(|instance| instance.data() != Some(resource));
                 }
@@ -519,7 +519,7 @@ where
         let protocol_state = state.ext_workspace_manager_state();
 
         let Some((workspace, _)) = protocol_state
-            .tags
+            .workspaces
             .iter()
             .find(|(_, data)| data.instances.contains(resource))
         else {
@@ -553,7 +553,7 @@ where
         _data: &ExtWorkspaceManagerV1,
     ) {
         let state = state.ext_workspace_manager_state();
-        for data in state.tags.values_mut() {
+        for data in state.workspaces.values_mut() {
             data.instances.retain(|instance| instance != resource);
         }
     }
@@ -577,7 +577,7 @@ where
             ext_workspace_group_handle_v1::Request::CreateWorkspace { workspace } => {
                 if let Some(output) = state
                     .ext_workspace_manager_state()
-                    .tag_groups
+                    .workspace_groups
                     .iter()
                     .find_map(|(output, group)| {
                         (group.instances.contains(resource)).then_some(output.clone())
@@ -598,7 +598,7 @@ where
         _data: &ExtWorkspaceManagerV1,
     ) {
         let state = state.ext_workspace_manager_state();
-        for data in state.tag_groups.values_mut() {
+        for data in state.workspace_groups.values_mut() {
             data.instances.retain(|instance| instance != resource);
         }
     }

@@ -890,7 +890,7 @@ local pinnacle_v1_Backend = {
 ---@field request_id integer?
 ---@field output_name string?
 ---@field window_count integer?
----@field tag_ids integer[]?
+---@field workspace_ids integer[]?
 
 ---@class pinnacle.output.v1.SetLocRequest
 ---@field output_name string?
@@ -993,11 +993,11 @@ local pinnacle_v1_Backend = {
 ---@class pinnacle.output.v1.GetFocusedResponse
 ---@field focused boolean?
 
----@class pinnacle.output.v1.GetTagIdsRequest
+---@class pinnacle.output.v1.GetWorkspaceIdsRequest
 ---@field output_name string?
 
----@class pinnacle.output.v1.GetTagIdsResponse
----@field tag_ids integer[]?
+---@class pinnacle.output.v1.GetWorkspaceIdsResponse
+---@field workspace_ids integer[]?
 
 ---@class pinnacle.output.v1.GetScaleRequest
 ---@field output_name string?
@@ -1118,11 +1118,11 @@ local pinnacle_v1_Backend = {
 ---@class pinnacle.window.v1.GetLayoutModeResponse
 ---@field layout_mode pinnacle.window.v1.LayoutMode?
 
----@class pinnacle.window.v1.GetTagIdsRequest
+---@class pinnacle.window.v1.GetWorkspaceIdsRequest
 ---@field window_id integer?
 
----@class pinnacle.window.v1.GetTagIdsResponse
----@field tag_ids integer[]?
+---@class pinnacle.window.v1.GetWorkspaceIdsResponse
+---@field workspace_ids integer[]?
 
 ---@class pinnacle.window.v1.GetWindowsInDirRequest
 ---@field window_id integer?
@@ -1174,20 +1174,20 @@ local pinnacle_v1_Backend = {
 ---@field window_id integer?
 ---@field decoration_mode pinnacle.window.v1.DecorationMode?
 
----@class pinnacle.window.v1.MoveToTagRequest
+---@class pinnacle.window.v1.MoveToWorkspaceRequest
 ---@field window_id integer?
----@field tag_id integer?
+---@field workspace_id integer?
 
----@class pinnacle.window.v1.SetTagRequest
+---@class pinnacle.window.v1.SetWorkspaceRequest
 ---@field window_id integer?
----@field tag_id integer?
+---@field workspace_id integer?
 ---@field set_or_toggle pinnacle.util.v1.SetOrToggle?
 
----@class pinnacle.window.v1.SetTagsRequest
+---@class pinnacle.window.v1.SetWorkspacesRequest
 ---@field window_id integer?
----@field tag_ids integer[]?
+---@field workspace_ids integer[]?
 
----@class pinnacle.window.v1.SetTagsResponse
+---@class pinnacle.window.v1.SetWorkspacesResponse
 
 ---@class pinnacle.window.v1.VrrDemand
 ---@field fullscreen boolean?
@@ -1329,24 +1329,24 @@ local pinnacle_v1_Backend = {
 ---@field title string?
 ---@field app_id string?
 
----@class pinnacle.signal.v1.TagActiveRequest
+---@class pinnacle.signal.v1.WorkspaceActiveRequest
 ---@field control pinnacle.signal.v1.StreamControl?
 
----@class pinnacle.signal.v1.TagActiveResponse
----@field tag_id integer?
+---@class pinnacle.signal.v1.WorkspaceActiveResponse
+---@field workspace_id integer?
 ---@field active boolean?
 
----@class pinnacle.signal.v1.TagCreatedRequest
+---@class pinnacle.signal.v1.WorkspaceCreatedRequest
 ---@field control pinnacle.signal.v1.StreamControl?
 
----@class pinnacle.signal.v1.TagCreatedResponse
----@field tag_id integer?
+---@class pinnacle.signal.v1.WorkspaceCreatedResponse
+---@field workspace_id integer?
 
----@class pinnacle.signal.v1.TagRemovedRequest
+---@class pinnacle.signal.v1.WorkspaceRemovedRequest
 ---@field control pinnacle.signal.v1.StreamControl?
 
----@class pinnacle.signal.v1.TagRemovedResponse
----@field tag_id integer?
+---@class pinnacle.signal.v1.WorkspaceRemovedResponse
+---@field workspace_id integer?
 
 ---@class pinnacle.signal.v1.InputDeviceAddedRequest
 ---@field control pinnacle.signal.v1.StreamControl?
@@ -1354,59 +1354,59 @@ local pinnacle_v1_Backend = {
 ---@class pinnacle.signal.v1.InputDeviceAddedResponse
 ---@field device_sysname string?
 
----@class pinnacle.tag.v1.GetRequest
+---@class pinnacle.workspace.v1.GetRequest
 
----@class pinnacle.tag.v1.GetResponse
----@field tag_ids integer[]?
+---@class pinnacle.workspace.v1.GetResponse
+---@field workspace_ids integer[]?
 
----@class pinnacle.tag.v1.AddRequest
+---@class pinnacle.workspace.v1.AddRequest
 ---@field output_name string?
----@field tag_names string[]?
+---@field workspace_names string[]?
 
----@class pinnacle.tag.v1.AddResponse
----@field tag_ids integer[]?
+---@class pinnacle.workspace.v1.AddResponse
+---@field workspace_ids integer[]?
 
----@class pinnacle.tag.v1.RemoveRequest
----@field tag_ids integer[]?
+---@class pinnacle.workspace.v1.RemoveRequest
+---@field workspace_ids integer[]?
 
----@class pinnacle.tag.v1.MoveToOutputRequest
+---@class pinnacle.workspace.v1.MoveToOutputRequest
 ---@field output_name string?
----@field tag_ids integer[]?
+---@field workspace_ids integer[]?
 
----@class pinnacle.tag.v1.MoveToOutputResponse
----@field error pinnacle.tag.v1.MoveToOutputResponse.Error?
+---@class pinnacle.workspace.v1.MoveToOutputResponse
+---@field error pinnacle.workspace.v1.MoveToOutputResponse.Error?
 
----@class pinnacle.tag.v1.MoveToOutputResponse.Error
+---@class pinnacle.workspace.v1.MoveToOutputResponse.Error
 ---@field output_does_not_exist google.protobuf.Empty?
----@field same_window_on_two_outputs pinnacle.tag.v1.MoveToOutputResponse.Error.SameWindowOnTwoOutputs?
+---@field same_window_on_two_outputs pinnacle.workspace.v1.MoveToOutputResponse.Error.SameWindowOnTwoOutputs?
 
----@class pinnacle.tag.v1.MoveToOutputResponse.Error.SameWindowOnTwoOutputs
+---@class pinnacle.workspace.v1.MoveToOutputResponse.Error.SameWindowOnTwoOutputs
 ---@field window_ids integer[]?
 
----@class pinnacle.tag.v1.GetActiveRequest
----@field tag_id integer?
+---@class pinnacle.workspace.v1.GetActiveRequest
+---@field workspace_id integer?
 
----@class pinnacle.tag.v1.GetActiveResponse
+---@class pinnacle.workspace.v1.GetActiveResponse
 ---@field active boolean?
 
----@class pinnacle.tag.v1.GetNameRequest
----@field tag_id integer?
+---@class pinnacle.workspace.v1.GetNameRequest
+---@field workspace_id integer?
 
----@class pinnacle.tag.v1.GetNameResponse
+---@class pinnacle.workspace.v1.GetNameResponse
 ---@field name string?
 
----@class pinnacle.tag.v1.GetOutputNameRequest
----@field tag_id integer?
+---@class pinnacle.workspace.v1.GetOutputNameRequest
+---@field workspace_id integer?
 
----@class pinnacle.tag.v1.GetOutputNameResponse
+---@class pinnacle.workspace.v1.GetOutputNameResponse
 ---@field output_name string?
 
----@class pinnacle.tag.v1.SetActiveRequest
----@field tag_id integer?
+---@class pinnacle.workspace.v1.SetActiveRequest
+---@field workspace_id integer?
 ---@field set_or_toggle pinnacle.util.v1.SetOrToggle?
 
----@class pinnacle.tag.v1.SwitchToRequest
----@field tag_id integer?
+---@class pinnacle.workspace.v1.SwitchToRequest
+---@field workspace_id integer?
 
 ---@class pinnacle.v1.QuitRequest
 
@@ -1523,8 +1523,8 @@ pinnacle.output.v1.GetModesRequest = {}
 pinnacle.output.v1.GetModesResponse = {}
 pinnacle.output.v1.GetFocusedRequest = {}
 pinnacle.output.v1.GetFocusedResponse = {}
-pinnacle.output.v1.GetTagIdsRequest = {}
-pinnacle.output.v1.GetTagIdsResponse = {}
+pinnacle.output.v1.GetWorkspaceIdsRequest = {}
+pinnacle.output.v1.GetWorkspaceIdsResponse = {}
 pinnacle.output.v1.GetScaleRequest = {}
 pinnacle.output.v1.GetScaleResponse = {}
 pinnacle.output.v1.GetTransformRequest = {}
@@ -1566,8 +1566,8 @@ pinnacle.window.v1.GetFocusedRequest = {}
 pinnacle.window.v1.GetFocusedResponse = {}
 pinnacle.window.v1.GetLayoutModeRequest = {}
 pinnacle.window.v1.GetLayoutModeResponse = {}
-pinnacle.window.v1.GetTagIdsRequest = {}
-pinnacle.window.v1.GetTagIdsResponse = {}
+pinnacle.window.v1.GetWorkspaceIdsRequest = {}
+pinnacle.window.v1.GetWorkspaceIdsResponse = {}
 pinnacle.window.v1.GetWindowsInDirRequest = {}
 pinnacle.window.v1.GetWindowsInDirResponse = {}
 pinnacle.window.v1.GetForeignToplevelListIdentifierRequest = {}
@@ -1580,10 +1580,10 @@ pinnacle.window.v1.SetMaximizedRequest = {}
 pinnacle.window.v1.SetFloatingRequest = {}
 pinnacle.window.v1.SetFocusedRequest = {}
 pinnacle.window.v1.SetDecorationModeRequest = {}
-pinnacle.window.v1.MoveToTagRequest = {}
-pinnacle.window.v1.SetTagRequest = {}
-pinnacle.window.v1.SetTagsRequest = {}
-pinnacle.window.v1.SetTagsResponse = {}
+pinnacle.window.v1.MoveToWorkspaceRequest = {}
+pinnacle.window.v1.SetWorkspaceRequest = {}
+pinnacle.window.v1.SetWorkspacesRequest = {}
+pinnacle.window.v1.SetWorkspacesResponse = {}
 pinnacle.window.v1.VrrDemand = {}
 pinnacle.window.v1.SetVrrDemandRequest = {}
 pinnacle.window.v1.SetVrrDemandResponse = {}
@@ -1630,33 +1630,33 @@ pinnacle.signal.v1.WindowCreatedRequest = {}
 pinnacle.signal.v1.WindowCreatedResponse = {}
 pinnacle.signal.v1.WindowDestroyedRequest = {}
 pinnacle.signal.v1.WindowDestroyedResponse = {}
-pinnacle.signal.v1.TagActiveRequest = {}
-pinnacle.signal.v1.TagActiveResponse = {}
-pinnacle.signal.v1.TagCreatedRequest = {}
-pinnacle.signal.v1.TagCreatedResponse = {}
-pinnacle.signal.v1.TagRemovedRequest = {}
-pinnacle.signal.v1.TagRemovedResponse = {}
+pinnacle.signal.v1.WorkspaceActiveRequest = {}
+pinnacle.signal.v1.WorkspaceActiveResponse = {}
+pinnacle.signal.v1.WorkspaceCreatedRequest = {}
+pinnacle.signal.v1.WorkspaceCreatedResponse = {}
+pinnacle.signal.v1.WorkspaceRemovedRequest = {}
+pinnacle.signal.v1.WorkspaceRemovedResponse = {}
 pinnacle.signal.v1.InputDeviceAddedRequest = {}
 pinnacle.signal.v1.InputDeviceAddedResponse = {}
-pinnacle.tag = {}
-pinnacle.tag.v1 = {}
-pinnacle.tag.v1.GetRequest = {}
-pinnacle.tag.v1.GetResponse = {}
-pinnacle.tag.v1.AddRequest = {}
-pinnacle.tag.v1.AddResponse = {}
-pinnacle.tag.v1.RemoveRequest = {}
-pinnacle.tag.v1.MoveToOutputRequest = {}
-pinnacle.tag.v1.MoveToOutputResponse = {}
-pinnacle.tag.v1.MoveToOutputResponse.Error = {}
-pinnacle.tag.v1.MoveToOutputResponse.Error.SameWindowOnTwoOutputs = {}
-pinnacle.tag.v1.GetActiveRequest = {}
-pinnacle.tag.v1.GetActiveResponse = {}
-pinnacle.tag.v1.GetNameRequest = {}
-pinnacle.tag.v1.GetNameResponse = {}
-pinnacle.tag.v1.GetOutputNameRequest = {}
-pinnacle.tag.v1.GetOutputNameResponse = {}
-pinnacle.tag.v1.SetActiveRequest = {}
-pinnacle.tag.v1.SwitchToRequest = {}
+pinnacle.workspace = {}
+pinnacle.workspace.v1 = {}
+pinnacle.workspace.v1.GetRequest = {}
+pinnacle.workspace.v1.GetResponse = {}
+pinnacle.workspace.v1.AddRequest = {}
+pinnacle.workspace.v1.AddResponse = {}
+pinnacle.workspace.v1.RemoveRequest = {}
+pinnacle.workspace.v1.MoveToOutputRequest = {}
+pinnacle.workspace.v1.MoveToOutputResponse = {}
+pinnacle.workspace.v1.MoveToOutputResponse.Error = {}
+pinnacle.workspace.v1.MoveToOutputResponse.Error.SameWindowOnTwoOutputs = {}
+pinnacle.workspace.v1.GetActiveRequest = {}
+pinnacle.workspace.v1.GetActiveResponse = {}
+pinnacle.workspace.v1.GetNameRequest = {}
+pinnacle.workspace.v1.GetNameResponse = {}
+pinnacle.workspace.v1.GetOutputNameRequest = {}
+pinnacle.workspace.v1.GetOutputNameResponse = {}
+pinnacle.workspace.v1.SetActiveRequest = {}
+pinnacle.workspace.v1.SwitchToRequest = {}
 pinnacle.v1 = {}
 pinnacle.v1.QuitRequest = {}
 pinnacle.v1.ReloadConfigRequest = {}
@@ -2383,22 +2383,22 @@ pinnacle.output.v1.OutputService.GetFocused.response = ".pinnacle.output.v1.GetF
 function Client:pinnacle_output_v1_OutputService_GetFocused(data)
     return self:unary_request(pinnacle.output.v1.OutputService.GetFocused, data)
 end
-pinnacle.output.v1.OutputService.GetTagIds = {}
-pinnacle.output.v1.OutputService.GetTagIds.service = "pinnacle.output.v1.OutputService"
-pinnacle.output.v1.OutputService.GetTagIds.method = "GetTagIds"
-pinnacle.output.v1.OutputService.GetTagIds.request = ".pinnacle.output.v1.GetTagIdsRequest"
-pinnacle.output.v1.OutputService.GetTagIds.response = ".pinnacle.output.v1.GetTagIdsResponse"
+pinnacle.output.v1.OutputService.GetWorkspaceIds = {}
+pinnacle.output.v1.OutputService.GetWorkspaceIds.service = "pinnacle.output.v1.OutputService"
+pinnacle.output.v1.OutputService.GetWorkspaceIds.method = "GetWorkspaceIds"
+pinnacle.output.v1.OutputService.GetWorkspaceIds.request = ".pinnacle.output.v1.GetWorkspaceIdsRequest"
+pinnacle.output.v1.OutputService.GetWorkspaceIds.response = ".pinnacle.output.v1.GetWorkspaceIdsResponse"
 
 ---Performs a unary request.
 ---
 ---@nodiscard
 ---
----@param data pinnacle.output.v1.GetTagIdsRequest
+---@param data pinnacle.output.v1.GetWorkspaceIdsRequest
 ---
----@return pinnacle.output.v1.GetTagIdsResponse | nil response
+---@return pinnacle.output.v1.GetWorkspaceIdsResponse | nil response
 ---@return string | nil error An error string, if any
-function Client:pinnacle_output_v1_OutputService_GetTagIds(data)
-    return self:unary_request(pinnacle.output.v1.OutputService.GetTagIds, data)
+function Client:pinnacle_output_v1_OutputService_GetWorkspaceIds(data)
+    return self:unary_request(pinnacle.output.v1.OutputService.GetWorkspaceIds, data)
 end
 pinnacle.output.v1.OutputService.GetScale = {}
 pinnacle.output.v1.OutputService.GetScale.service = "pinnacle.output.v1.OutputService"
@@ -2712,22 +2712,22 @@ pinnacle.window.v1.WindowService.GetLayoutMode.response = ".pinnacle.window.v1.G
 function Client:pinnacle_window_v1_WindowService_GetLayoutMode(data)
     return self:unary_request(pinnacle.window.v1.WindowService.GetLayoutMode, data)
 end
-pinnacle.window.v1.WindowService.GetTagIds = {}
-pinnacle.window.v1.WindowService.GetTagIds.service = "pinnacle.window.v1.WindowService"
-pinnacle.window.v1.WindowService.GetTagIds.method = "GetTagIds"
-pinnacle.window.v1.WindowService.GetTagIds.request = ".pinnacle.window.v1.GetTagIdsRequest"
-pinnacle.window.v1.WindowService.GetTagIds.response = ".pinnacle.window.v1.GetTagIdsResponse"
+pinnacle.window.v1.WindowService.GetWorkspaceIds = {}
+pinnacle.window.v1.WindowService.GetWorkspaceIds.service = "pinnacle.window.v1.WindowService"
+pinnacle.window.v1.WindowService.GetWorkspaceIds.method = "GetWorkspaceIds"
+pinnacle.window.v1.WindowService.GetWorkspaceIds.request = ".pinnacle.window.v1.GetWorkspaceIdsRequest"
+pinnacle.window.v1.WindowService.GetWorkspaceIds.response = ".pinnacle.window.v1.GetWorkspaceIdsResponse"
 
 ---Performs a unary request.
 ---
 ---@nodiscard
 ---
----@param data pinnacle.window.v1.GetTagIdsRequest
+---@param data pinnacle.window.v1.GetWorkspaceIdsRequest
 ---
----@return pinnacle.window.v1.GetTagIdsResponse | nil response
+---@return pinnacle.window.v1.GetWorkspaceIdsResponse | nil response
 ---@return string | nil error An error string, if any
-function Client:pinnacle_window_v1_WindowService_GetTagIds(data)
-    return self:unary_request(pinnacle.window.v1.WindowService.GetTagIds, data)
+function Client:pinnacle_window_v1_WindowService_GetWorkspaceIds(data)
+    return self:unary_request(pinnacle.window.v1.WindowService.GetWorkspaceIds, data)
 end
 pinnacle.window.v1.WindowService.GetWindowsInDir = {}
 pinnacle.window.v1.WindowService.GetWindowsInDir.service = "pinnacle.window.v1.WindowService"
@@ -2899,56 +2899,56 @@ pinnacle.window.v1.WindowService.SetDecorationMode.response = ".google.protobuf.
 function Client:pinnacle_window_v1_WindowService_SetDecorationMode(data)
     return self:unary_request(pinnacle.window.v1.WindowService.SetDecorationMode, data)
 end
-pinnacle.window.v1.WindowService.MoveToTag = {}
-pinnacle.window.v1.WindowService.MoveToTag.service = "pinnacle.window.v1.WindowService"
-pinnacle.window.v1.WindowService.MoveToTag.method = "MoveToTag"
-pinnacle.window.v1.WindowService.MoveToTag.request = ".pinnacle.window.v1.MoveToTagRequest"
-pinnacle.window.v1.WindowService.MoveToTag.response = ".google.protobuf.Empty"
+pinnacle.window.v1.WindowService.MoveToWorkspace = {}
+pinnacle.window.v1.WindowService.MoveToWorkspace.service = "pinnacle.window.v1.WindowService"
+pinnacle.window.v1.WindowService.MoveToWorkspace.method = "MoveToWorkspace"
+pinnacle.window.v1.WindowService.MoveToWorkspace.request = ".pinnacle.window.v1.MoveToWorkspaceRequest"
+pinnacle.window.v1.WindowService.MoveToWorkspace.response = ".google.protobuf.Empty"
 
 ---Performs a unary request.
 ---
 ---@nodiscard
 ---
----@param data pinnacle.window.v1.MoveToTagRequest
+---@param data pinnacle.window.v1.MoveToWorkspaceRequest
 ---
 ---@return google.protobuf.Empty | nil response
 ---@return string | nil error An error string, if any
-function Client:pinnacle_window_v1_WindowService_MoveToTag(data)
-    return self:unary_request(pinnacle.window.v1.WindowService.MoveToTag, data)
+function Client:pinnacle_window_v1_WindowService_MoveToWorkspace(data)
+    return self:unary_request(pinnacle.window.v1.WindowService.MoveToWorkspace, data)
 end
-pinnacle.window.v1.WindowService.SetTag = {}
-pinnacle.window.v1.WindowService.SetTag.service = "pinnacle.window.v1.WindowService"
-pinnacle.window.v1.WindowService.SetTag.method = "SetTag"
-pinnacle.window.v1.WindowService.SetTag.request = ".pinnacle.window.v1.SetTagRequest"
-pinnacle.window.v1.WindowService.SetTag.response = ".google.protobuf.Empty"
+pinnacle.window.v1.WindowService.SetWorkspace = {}
+pinnacle.window.v1.WindowService.SetWorkspace.service = "pinnacle.window.v1.WindowService"
+pinnacle.window.v1.WindowService.SetWorkspace.method = "SetWorkspace"
+pinnacle.window.v1.WindowService.SetWorkspace.request = ".pinnacle.window.v1.SetWorkspaceRequest"
+pinnacle.window.v1.WindowService.SetWorkspace.response = ".google.protobuf.Empty"
 
 ---Performs a unary request.
 ---
 ---@nodiscard
 ---
----@param data pinnacle.window.v1.SetTagRequest
+---@param data pinnacle.window.v1.SetWorkspaceRequest
 ---
 ---@return google.protobuf.Empty | nil response
 ---@return string | nil error An error string, if any
-function Client:pinnacle_window_v1_WindowService_SetTag(data)
-    return self:unary_request(pinnacle.window.v1.WindowService.SetTag, data)
+function Client:pinnacle_window_v1_WindowService_SetWorkspace(data)
+    return self:unary_request(pinnacle.window.v1.WindowService.SetWorkspace, data)
 end
-pinnacle.window.v1.WindowService.SetTags = {}
-pinnacle.window.v1.WindowService.SetTags.service = "pinnacle.window.v1.WindowService"
-pinnacle.window.v1.WindowService.SetTags.method = "SetTags"
-pinnacle.window.v1.WindowService.SetTags.request = ".pinnacle.window.v1.SetTagsRequest"
-pinnacle.window.v1.WindowService.SetTags.response = ".pinnacle.window.v1.SetTagsResponse"
+pinnacle.window.v1.WindowService.SetWorkspaces = {}
+pinnacle.window.v1.WindowService.SetWorkspaces.service = "pinnacle.window.v1.WindowService"
+pinnacle.window.v1.WindowService.SetWorkspaces.method = "SetWorkspaces"
+pinnacle.window.v1.WindowService.SetWorkspaces.request = ".pinnacle.window.v1.SetWorkspacesRequest"
+pinnacle.window.v1.WindowService.SetWorkspaces.response = ".pinnacle.window.v1.SetWorkspacesResponse"
 
 ---Performs a unary request.
 ---
 ---@nodiscard
 ---
----@param data pinnacle.window.v1.SetTagsRequest
+---@param data pinnacle.window.v1.SetWorkspacesRequest
 ---
----@return pinnacle.window.v1.SetTagsResponse | nil response
+---@return pinnacle.window.v1.SetWorkspacesResponse | nil response
 ---@return string | nil error An error string, if any
-function Client:pinnacle_window_v1_WindowService_SetTags(data)
-    return self:unary_request(pinnacle.window.v1.WindowService.SetTags, data)
+function Client:pinnacle_window_v1_WindowService_SetWorkspaces(data)
+    return self:unary_request(pinnacle.window.v1.WindowService.SetWorkspaces, data)
 end
 pinnacle.window.v1.WindowService.SetVrrDemand = {}
 pinnacle.window.v1.WindowService.SetVrrDemand.service = "pinnacle.window.v1.WindowService"
@@ -3400,11 +3400,11 @@ pinnacle.signal.v1.SignalService.WindowDestroyed.response = ".pinnacle.signal.v1
 function Client:pinnacle_signal_v1_SignalService_WindowDestroyed(callback, done)
     return self:bidirectional_streaming_request(pinnacle.signal.v1.SignalService.WindowDestroyed, callback, done)
 end
-pinnacle.signal.v1.SignalService.TagActive = {}
-pinnacle.signal.v1.SignalService.TagActive.service = "pinnacle.signal.v1.SignalService"
-pinnacle.signal.v1.SignalService.TagActive.method = "TagActive"
-pinnacle.signal.v1.SignalService.TagActive.request = ".pinnacle.signal.v1.TagActiveRequest"
-pinnacle.signal.v1.SignalService.TagActive.response = ".pinnacle.signal.v1.TagActiveResponse"
+pinnacle.signal.v1.SignalService.WorkspaceActive = {}
+pinnacle.signal.v1.SignalService.WorkspaceActive.service = "pinnacle.signal.v1.SignalService"
+pinnacle.signal.v1.SignalService.WorkspaceActive.method = "WorkspaceActive"
+pinnacle.signal.v1.SignalService.WorkspaceActive.request = ".pinnacle.signal.v1.WorkspaceActiveRequest"
+pinnacle.signal.v1.SignalService.WorkspaceActive.response = ".pinnacle.signal.v1.WorkspaceActiveResponse"
 
 ---Performs a bidirectional-streaming request.
 ---
@@ -3414,19 +3414,19 @@ pinnacle.signal.v1.SignalService.TagActive.response = ".pinnacle.signal.v1.TagAc
 ---
 ---@nodiscard
 ---
----@param callback fun(response: pinnacle.signal.v1.TagActiveResponse, stream: grpc_client.h2.Stream)
+---@param callback fun(response: pinnacle.signal.v1.WorkspaceActiveResponse, stream: grpc_client.h2.Stream)
 ---@param done? fun()
 ---
 ---@return grpc_client.h2.Stream | nil
 ---@return string | nil An error string, if any
-function Client:pinnacle_signal_v1_SignalService_TagActive(callback, done)
-    return self:bidirectional_streaming_request(pinnacle.signal.v1.SignalService.TagActive, callback, done)
+function Client:pinnacle_signal_v1_SignalService_WorkspaceActive(callback, done)
+    return self:bidirectional_streaming_request(pinnacle.signal.v1.SignalService.WorkspaceActive, callback, done)
 end
-pinnacle.signal.v1.SignalService.TagCreated = {}
-pinnacle.signal.v1.SignalService.TagCreated.service = "pinnacle.signal.v1.SignalService"
-pinnacle.signal.v1.SignalService.TagCreated.method = "TagCreated"
-pinnacle.signal.v1.SignalService.TagCreated.request = ".pinnacle.signal.v1.TagCreatedRequest"
-pinnacle.signal.v1.SignalService.TagCreated.response = ".pinnacle.signal.v1.TagCreatedResponse"
+pinnacle.signal.v1.SignalService.WorkspaceCreated = {}
+pinnacle.signal.v1.SignalService.WorkspaceCreated.service = "pinnacle.signal.v1.SignalService"
+pinnacle.signal.v1.SignalService.WorkspaceCreated.method = "WorkspaceCreated"
+pinnacle.signal.v1.SignalService.WorkspaceCreated.request = ".pinnacle.signal.v1.WorkspaceCreatedRequest"
+pinnacle.signal.v1.SignalService.WorkspaceCreated.response = ".pinnacle.signal.v1.WorkspaceCreatedResponse"
 
 ---Performs a bidirectional-streaming request.
 ---
@@ -3436,19 +3436,19 @@ pinnacle.signal.v1.SignalService.TagCreated.response = ".pinnacle.signal.v1.TagC
 ---
 ---@nodiscard
 ---
----@param callback fun(response: pinnacle.signal.v1.TagCreatedResponse, stream: grpc_client.h2.Stream)
+---@param callback fun(response: pinnacle.signal.v1.WorkspaceCreatedResponse, stream: grpc_client.h2.Stream)
 ---@param done? fun()
 ---
 ---@return grpc_client.h2.Stream | nil
 ---@return string | nil An error string, if any
-function Client:pinnacle_signal_v1_SignalService_TagCreated(callback, done)
-    return self:bidirectional_streaming_request(pinnacle.signal.v1.SignalService.TagCreated, callback, done)
+function Client:pinnacle_signal_v1_SignalService_WorkspaceCreated(callback, done)
+    return self:bidirectional_streaming_request(pinnacle.signal.v1.SignalService.WorkspaceCreated, callback, done)
 end
-pinnacle.signal.v1.SignalService.TagRemoved = {}
-pinnacle.signal.v1.SignalService.TagRemoved.service = "pinnacle.signal.v1.SignalService"
-pinnacle.signal.v1.SignalService.TagRemoved.method = "TagRemoved"
-pinnacle.signal.v1.SignalService.TagRemoved.request = ".pinnacle.signal.v1.TagRemovedRequest"
-pinnacle.signal.v1.SignalService.TagRemoved.response = ".pinnacle.signal.v1.TagRemovedResponse"
+pinnacle.signal.v1.SignalService.WorkspaceRemoved = {}
+pinnacle.signal.v1.SignalService.WorkspaceRemoved.service = "pinnacle.signal.v1.SignalService"
+pinnacle.signal.v1.SignalService.WorkspaceRemoved.method = "WorkspaceRemoved"
+pinnacle.signal.v1.SignalService.WorkspaceRemoved.request = ".pinnacle.signal.v1.WorkspaceRemovedRequest"
+pinnacle.signal.v1.SignalService.WorkspaceRemoved.response = ".pinnacle.signal.v1.WorkspaceRemovedResponse"
 
 ---Performs a bidirectional-streaming request.
 ---
@@ -3458,13 +3458,13 @@ pinnacle.signal.v1.SignalService.TagRemoved.response = ".pinnacle.signal.v1.TagR
 ---
 ---@nodiscard
 ---
----@param callback fun(response: pinnacle.signal.v1.TagRemovedResponse, stream: grpc_client.h2.Stream)
+---@param callback fun(response: pinnacle.signal.v1.WorkspaceRemovedResponse, stream: grpc_client.h2.Stream)
 ---@param done? fun()
 ---
 ---@return grpc_client.h2.Stream | nil
 ---@return string | nil An error string, if any
-function Client:pinnacle_signal_v1_SignalService_TagRemoved(callback, done)
-    return self:bidirectional_streaming_request(pinnacle.signal.v1.SignalService.TagRemoved, callback, done)
+function Client:pinnacle_signal_v1_SignalService_WorkspaceRemoved(callback, done)
+    return self:bidirectional_streaming_request(pinnacle.signal.v1.SignalService.WorkspaceRemoved, callback, done)
 end
 pinnacle.signal.v1.SignalService.InputDeviceAdded = {}
 pinnacle.signal.v1.SignalService.InputDeviceAdded.service = "pinnacle.signal.v1.SignalService"
@@ -3488,159 +3488,159 @@ pinnacle.signal.v1.SignalService.InputDeviceAdded.response = ".pinnacle.signal.v
 function Client:pinnacle_signal_v1_SignalService_InputDeviceAdded(callback, done)
     return self:bidirectional_streaming_request(pinnacle.signal.v1.SignalService.InputDeviceAdded, callback, done)
 end
-pinnacle.tag.v1.TagService = {}
-pinnacle.tag.v1.TagService.Get = {}
-pinnacle.tag.v1.TagService.Get.service = "pinnacle.tag.v1.TagService"
-pinnacle.tag.v1.TagService.Get.method = "Get"
-pinnacle.tag.v1.TagService.Get.request = ".pinnacle.tag.v1.GetRequest"
-pinnacle.tag.v1.TagService.Get.response = ".pinnacle.tag.v1.GetResponse"
+pinnacle.workspace.v1.WorkspaceService = {}
+pinnacle.workspace.v1.WorkspaceService.Get = {}
+pinnacle.workspace.v1.WorkspaceService.Get.service = "pinnacle.workspace.v1.WorkspaceService"
+pinnacle.workspace.v1.WorkspaceService.Get.method = "Get"
+pinnacle.workspace.v1.WorkspaceService.Get.request = ".pinnacle.workspace.v1.GetRequest"
+pinnacle.workspace.v1.WorkspaceService.Get.response = ".pinnacle.workspace.v1.GetResponse"
 
 ---Performs a unary request.
 ---
 ---@nodiscard
 ---
----@param data pinnacle.tag.v1.GetRequest
+---@param data pinnacle.workspace.v1.GetRequest
 ---
----@return pinnacle.tag.v1.GetResponse | nil response
+---@return pinnacle.workspace.v1.GetResponse | nil response
 ---@return string | nil error An error string, if any
-function Client:pinnacle_tag_v1_TagService_Get(data)
-    return self:unary_request(pinnacle.tag.v1.TagService.Get, data)
+function Client:pinnacle_workspace_v1_WorkspaceService_Get(data)
+    return self:unary_request(pinnacle.workspace.v1.WorkspaceService.Get, data)
 end
-pinnacle.tag.v1.TagService.GetActive = {}
-pinnacle.tag.v1.TagService.GetActive.service = "pinnacle.tag.v1.TagService"
-pinnacle.tag.v1.TagService.GetActive.method = "GetActive"
-pinnacle.tag.v1.TagService.GetActive.request = ".pinnacle.tag.v1.GetActiveRequest"
-pinnacle.tag.v1.TagService.GetActive.response = ".pinnacle.tag.v1.GetActiveResponse"
+pinnacle.workspace.v1.WorkspaceService.GetActive = {}
+pinnacle.workspace.v1.WorkspaceService.GetActive.service = "pinnacle.workspace.v1.WorkspaceService"
+pinnacle.workspace.v1.WorkspaceService.GetActive.method = "GetActive"
+pinnacle.workspace.v1.WorkspaceService.GetActive.request = ".pinnacle.workspace.v1.GetActiveRequest"
+pinnacle.workspace.v1.WorkspaceService.GetActive.response = ".pinnacle.workspace.v1.GetActiveResponse"
 
 ---Performs a unary request.
 ---
 ---@nodiscard
 ---
----@param data pinnacle.tag.v1.GetActiveRequest
+---@param data pinnacle.workspace.v1.GetActiveRequest
 ---
----@return pinnacle.tag.v1.GetActiveResponse | nil response
+---@return pinnacle.workspace.v1.GetActiveResponse | nil response
 ---@return string | nil error An error string, if any
-function Client:pinnacle_tag_v1_TagService_GetActive(data)
-    return self:unary_request(pinnacle.tag.v1.TagService.GetActive, data)
+function Client:pinnacle_workspace_v1_WorkspaceService_GetActive(data)
+    return self:unary_request(pinnacle.workspace.v1.WorkspaceService.GetActive, data)
 end
-pinnacle.tag.v1.TagService.GetName = {}
-pinnacle.tag.v1.TagService.GetName.service = "pinnacle.tag.v1.TagService"
-pinnacle.tag.v1.TagService.GetName.method = "GetName"
-pinnacle.tag.v1.TagService.GetName.request = ".pinnacle.tag.v1.GetNameRequest"
-pinnacle.tag.v1.TagService.GetName.response = ".pinnacle.tag.v1.GetNameResponse"
+pinnacle.workspace.v1.WorkspaceService.GetName = {}
+pinnacle.workspace.v1.WorkspaceService.GetName.service = "pinnacle.workspace.v1.WorkspaceService"
+pinnacle.workspace.v1.WorkspaceService.GetName.method = "GetName"
+pinnacle.workspace.v1.WorkspaceService.GetName.request = ".pinnacle.workspace.v1.GetNameRequest"
+pinnacle.workspace.v1.WorkspaceService.GetName.response = ".pinnacle.workspace.v1.GetNameResponse"
 
 ---Performs a unary request.
 ---
 ---@nodiscard
 ---
----@param data pinnacle.tag.v1.GetNameRequest
+---@param data pinnacle.workspace.v1.GetNameRequest
 ---
----@return pinnacle.tag.v1.GetNameResponse | nil response
+---@return pinnacle.workspace.v1.GetNameResponse | nil response
 ---@return string | nil error An error string, if any
-function Client:pinnacle_tag_v1_TagService_GetName(data)
-    return self:unary_request(pinnacle.tag.v1.TagService.GetName, data)
+function Client:pinnacle_workspace_v1_WorkspaceService_GetName(data)
+    return self:unary_request(pinnacle.workspace.v1.WorkspaceService.GetName, data)
 end
-pinnacle.tag.v1.TagService.GetOutputName = {}
-pinnacle.tag.v1.TagService.GetOutputName.service = "pinnacle.tag.v1.TagService"
-pinnacle.tag.v1.TagService.GetOutputName.method = "GetOutputName"
-pinnacle.tag.v1.TagService.GetOutputName.request = ".pinnacle.tag.v1.GetOutputNameRequest"
-pinnacle.tag.v1.TagService.GetOutputName.response = ".pinnacle.tag.v1.GetOutputNameResponse"
+pinnacle.workspace.v1.WorkspaceService.GetOutputName = {}
+pinnacle.workspace.v1.WorkspaceService.GetOutputName.service = "pinnacle.workspace.v1.WorkspaceService"
+pinnacle.workspace.v1.WorkspaceService.GetOutputName.method = "GetOutputName"
+pinnacle.workspace.v1.WorkspaceService.GetOutputName.request = ".pinnacle.workspace.v1.GetOutputNameRequest"
+pinnacle.workspace.v1.WorkspaceService.GetOutputName.response = ".pinnacle.workspace.v1.GetOutputNameResponse"
 
 ---Performs a unary request.
 ---
 ---@nodiscard
 ---
----@param data pinnacle.tag.v1.GetOutputNameRequest
+---@param data pinnacle.workspace.v1.GetOutputNameRequest
 ---
----@return pinnacle.tag.v1.GetOutputNameResponse | nil response
+---@return pinnacle.workspace.v1.GetOutputNameResponse | nil response
 ---@return string | nil error An error string, if any
-function Client:pinnacle_tag_v1_TagService_GetOutputName(data)
-    return self:unary_request(pinnacle.tag.v1.TagService.GetOutputName, data)
+function Client:pinnacle_workspace_v1_WorkspaceService_GetOutputName(data)
+    return self:unary_request(pinnacle.workspace.v1.WorkspaceService.GetOutputName, data)
 end
-pinnacle.tag.v1.TagService.Add = {}
-pinnacle.tag.v1.TagService.Add.service = "pinnacle.tag.v1.TagService"
-pinnacle.tag.v1.TagService.Add.method = "Add"
-pinnacle.tag.v1.TagService.Add.request = ".pinnacle.tag.v1.AddRequest"
-pinnacle.tag.v1.TagService.Add.response = ".pinnacle.tag.v1.AddResponse"
+pinnacle.workspace.v1.WorkspaceService.Add = {}
+pinnacle.workspace.v1.WorkspaceService.Add.service = "pinnacle.workspace.v1.WorkspaceService"
+pinnacle.workspace.v1.WorkspaceService.Add.method = "Add"
+pinnacle.workspace.v1.WorkspaceService.Add.request = ".pinnacle.workspace.v1.AddRequest"
+pinnacle.workspace.v1.WorkspaceService.Add.response = ".pinnacle.workspace.v1.AddResponse"
 
 ---Performs a unary request.
 ---
 ---@nodiscard
 ---
----@param data pinnacle.tag.v1.AddRequest
+---@param data pinnacle.workspace.v1.AddRequest
 ---
----@return pinnacle.tag.v1.AddResponse | nil response
+---@return pinnacle.workspace.v1.AddResponse | nil response
 ---@return string | nil error An error string, if any
-function Client:pinnacle_tag_v1_TagService_Add(data)
-    return self:unary_request(pinnacle.tag.v1.TagService.Add, data)
+function Client:pinnacle_workspace_v1_WorkspaceService_Add(data)
+    return self:unary_request(pinnacle.workspace.v1.WorkspaceService.Add, data)
 end
-pinnacle.tag.v1.TagService.Remove = {}
-pinnacle.tag.v1.TagService.Remove.service = "pinnacle.tag.v1.TagService"
-pinnacle.tag.v1.TagService.Remove.method = "Remove"
-pinnacle.tag.v1.TagService.Remove.request = ".pinnacle.tag.v1.RemoveRequest"
-pinnacle.tag.v1.TagService.Remove.response = ".google.protobuf.Empty"
+pinnacle.workspace.v1.WorkspaceService.Remove = {}
+pinnacle.workspace.v1.WorkspaceService.Remove.service = "pinnacle.workspace.v1.WorkspaceService"
+pinnacle.workspace.v1.WorkspaceService.Remove.method = "Remove"
+pinnacle.workspace.v1.WorkspaceService.Remove.request = ".pinnacle.workspace.v1.RemoveRequest"
+pinnacle.workspace.v1.WorkspaceService.Remove.response = ".google.protobuf.Empty"
 
 ---Performs a unary request.
 ---
 ---@nodiscard
 ---
----@param data pinnacle.tag.v1.RemoveRequest
+---@param data pinnacle.workspace.v1.RemoveRequest
 ---
 ---@return google.protobuf.Empty | nil response
 ---@return string | nil error An error string, if any
-function Client:pinnacle_tag_v1_TagService_Remove(data)
-    return self:unary_request(pinnacle.tag.v1.TagService.Remove, data)
+function Client:pinnacle_workspace_v1_WorkspaceService_Remove(data)
+    return self:unary_request(pinnacle.workspace.v1.WorkspaceService.Remove, data)
 end
-pinnacle.tag.v1.TagService.SetActive = {}
-pinnacle.tag.v1.TagService.SetActive.service = "pinnacle.tag.v1.TagService"
-pinnacle.tag.v1.TagService.SetActive.method = "SetActive"
-pinnacle.tag.v1.TagService.SetActive.request = ".pinnacle.tag.v1.SetActiveRequest"
-pinnacle.tag.v1.TagService.SetActive.response = ".google.protobuf.Empty"
+pinnacle.workspace.v1.WorkspaceService.SetActive = {}
+pinnacle.workspace.v1.WorkspaceService.SetActive.service = "pinnacle.workspace.v1.WorkspaceService"
+pinnacle.workspace.v1.WorkspaceService.SetActive.method = "SetActive"
+pinnacle.workspace.v1.WorkspaceService.SetActive.request = ".pinnacle.workspace.v1.SetActiveRequest"
+pinnacle.workspace.v1.WorkspaceService.SetActive.response = ".google.protobuf.Empty"
 
 ---Performs a unary request.
 ---
 ---@nodiscard
 ---
----@param data pinnacle.tag.v1.SetActiveRequest
+---@param data pinnacle.workspace.v1.SetActiveRequest
 ---
 ---@return google.protobuf.Empty | nil response
 ---@return string | nil error An error string, if any
-function Client:pinnacle_tag_v1_TagService_SetActive(data)
-    return self:unary_request(pinnacle.tag.v1.TagService.SetActive, data)
+function Client:pinnacle_workspace_v1_WorkspaceService_SetActive(data)
+    return self:unary_request(pinnacle.workspace.v1.WorkspaceService.SetActive, data)
 end
-pinnacle.tag.v1.TagService.SwitchTo = {}
-pinnacle.tag.v1.TagService.SwitchTo.service = "pinnacle.tag.v1.TagService"
-pinnacle.tag.v1.TagService.SwitchTo.method = "SwitchTo"
-pinnacle.tag.v1.TagService.SwitchTo.request = ".pinnacle.tag.v1.SwitchToRequest"
-pinnacle.tag.v1.TagService.SwitchTo.response = ".google.protobuf.Empty"
+pinnacle.workspace.v1.WorkspaceService.SwitchTo = {}
+pinnacle.workspace.v1.WorkspaceService.SwitchTo.service = "pinnacle.workspace.v1.WorkspaceService"
+pinnacle.workspace.v1.WorkspaceService.SwitchTo.method = "SwitchTo"
+pinnacle.workspace.v1.WorkspaceService.SwitchTo.request = ".pinnacle.workspace.v1.SwitchToRequest"
+pinnacle.workspace.v1.WorkspaceService.SwitchTo.response = ".google.protobuf.Empty"
 
 ---Performs a unary request.
 ---
 ---@nodiscard
 ---
----@param data pinnacle.tag.v1.SwitchToRequest
+---@param data pinnacle.workspace.v1.SwitchToRequest
 ---
 ---@return google.protobuf.Empty | nil response
 ---@return string | nil error An error string, if any
-function Client:pinnacle_tag_v1_TagService_SwitchTo(data)
-    return self:unary_request(pinnacle.tag.v1.TagService.SwitchTo, data)
+function Client:pinnacle_workspace_v1_WorkspaceService_SwitchTo(data)
+    return self:unary_request(pinnacle.workspace.v1.WorkspaceService.SwitchTo, data)
 end
-pinnacle.tag.v1.TagService.MoveToOutput = {}
-pinnacle.tag.v1.TagService.MoveToOutput.service = "pinnacle.tag.v1.TagService"
-pinnacle.tag.v1.TagService.MoveToOutput.method = "MoveToOutput"
-pinnacle.tag.v1.TagService.MoveToOutput.request = ".pinnacle.tag.v1.MoveToOutputRequest"
-pinnacle.tag.v1.TagService.MoveToOutput.response = ".pinnacle.tag.v1.MoveToOutputResponse"
+pinnacle.workspace.v1.WorkspaceService.MoveToOutput = {}
+pinnacle.workspace.v1.WorkspaceService.MoveToOutput.service = "pinnacle.workspace.v1.WorkspaceService"
+pinnacle.workspace.v1.WorkspaceService.MoveToOutput.method = "MoveToOutput"
+pinnacle.workspace.v1.WorkspaceService.MoveToOutput.request = ".pinnacle.workspace.v1.MoveToOutputRequest"
+pinnacle.workspace.v1.WorkspaceService.MoveToOutput.response = ".pinnacle.workspace.v1.MoveToOutputResponse"
 
 ---Performs a unary request.
 ---
 ---@nodiscard
 ---
----@param data pinnacle.tag.v1.MoveToOutputRequest
+---@param data pinnacle.workspace.v1.MoveToOutputRequest
 ---
----@return pinnacle.tag.v1.MoveToOutputResponse | nil response
+---@return pinnacle.workspace.v1.MoveToOutputResponse | nil response
 ---@return string | nil error An error string, if any
-function Client:pinnacle_tag_v1_TagService_MoveToOutput(data)
-    return self:unary_request(pinnacle.tag.v1.TagService.MoveToOutput, data)
+function Client:pinnacle_workspace_v1_WorkspaceService_MoveToOutput(data)
+    return self:unary_request(pinnacle.workspace.v1.WorkspaceService.MoveToOutput, data)
 end
 pinnacle.v1.PinnacleService = {}
 pinnacle.v1.PinnacleService.Quit = {}

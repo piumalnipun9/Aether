@@ -1,4 +1,4 @@
-use pinnacle::{state::WithState, tag::Tag};
+use pinnacle::{state::WithState, workspace::Workspace};
 use smithay::{output::Output, utils::Rectangle};
 
 use crate::{
@@ -11,15 +11,15 @@ fn set_up() -> (Fixture, Output, Output) {
 
     let output1 = fixture.add_output(Rectangle::new((0, 0).into(), (1920, 1080).into()));
     output1.with_state_mut(|state| {
-        let tag = Tag::new("1".to_string());
-        tag.set_active(true);
-        state.add_tags([tag]);
+        let workspace = Workspace::new("1".to_string());
+        workspace.set_active(true);
+        state.add_workspaces([workspace]);
     });
     let output2 = fixture.add_output(Rectangle::new((0, 0).into(), (1920, 1080).into()));
     output2.with_state_mut(|state| {
-        let tag = Tag::new("1".to_string());
-        tag.set_active(true);
-        state.add_tags([tag]);
+        let workspace = Workspace::new("1".to_string());
+        workspace.set_active(true);
+        state.add_workspaces([workspace]);
     });
 
     fixture.pinnacle().focus_output(&output1);
@@ -827,64 +827,64 @@ fn output_handle_focused() {
 }
 
 #[test_log::test]
-fn output_handle_tags() {
+fn output_handle_workspaces() {
     let (mut fixture, _, _) = set_up();
 
     fixture.spawn_blocking(move || {
-        let tags = pinnacle_api::output::get_focused()
+        let workspaces = pinnacle_api::output::get_focused()
             .unwrap()
-            .tags()
+            .workspaces()
             .collect::<Vec<_>>();
 
-        assert_eq!(tags.len(), 1);
-        assert_eq!(tags[0].name(), "1");
+        assert_eq!(workspaces.len(), 1);
+        assert_eq!(workspaces[0].name(), "1");
     });
 
     spawn_lua_blocking! {
         fixture,
-        local tags = Output.get_focused():tags()
-        assert(#tags == 1)
-        assert(tags[1]:name() == "1")
+        local workspaces = Output.get_focused():workspaces()
+        assert(#workspaces == 1)
+        assert(workspaces[1]:name() == "1")
     }
 }
 
 #[test_log::test]
-fn output_handle_active_tags() {
+fn output_handle_active_workspaces() {
     for_each_api(|lang| {
         let (mut fixture, output, _) = set_up();
 
         fixture.pinnacle().focus_output(&output);
 
         output.with_state_mut(|state| {
-            let tag2 = Tag::new("2".to_string());
-            tag2.set_active(false);
+            let workspace2 = Workspace::new("2".to_string());
+            workspace2.set_active(false);
 
-            let tag3 = Tag::new("3".to_string());
-            tag3.set_active(true);
+            let workspace3 = Workspace::new("3".to_string());
+            workspace3.set_active(true);
 
-            state.add_tags([tag2, tag3]);
+            state.add_workspaces([workspace2, workspace3]);
         });
 
         match lang {
             Lang::Rust => fixture.spawn_blocking(move || {
-                let mut tags = pinnacle_api::output::get_focused()
+                let mut workspaces = pinnacle_api::output::get_focused()
                     .unwrap()
-                    .active_tags()
+                    .active_workspaces()
                     .map(|t| t.name())
                     .collect::<Vec<_>>();
 
-                tags.sort();
+                workspaces.sort();
 
-                assert_eq!(tags.len(), 2);
-                assert_eq!(tags.as_slice(), ["1", "3"]);
+                assert_eq!(workspaces.len(), 2);
+                assert_eq!(workspaces.as_slice(), ["1", "3"]);
             }),
             Lang::Lua => spawn_lua_blocking! {
                 fixture,
-                local tags = Output.get_focused():active_tags()
-                assert(#tags == 2)
+                local workspaces = Output.get_focused():active_workspaces()
+                assert(#workspaces == 2)
 
                 local tagnames = {}
-                for k, v in ipairs(tags) do
+                for k, v in ipairs(workspaces) do
                     tagnames[k] = v:name()
                 end
 
@@ -898,45 +898,45 @@ fn output_handle_active_tags() {
 }
 
 #[test_log::test]
-fn output_handle_inactive_tags() {
+fn output_handle_inactive_workspaces() {
     for_each_api(|lang| {
         let (mut fixture, output, _) = set_up();
 
         fixture.pinnacle().focus_output(&output);
 
         output.with_state_mut(|state| {
-            let tag2 = Tag::new("2".to_string());
-            tag2.set_active(false);
+            let workspace2 = Workspace::new("2".to_string());
+            workspace2.set_active(false);
 
-            let tag3 = Tag::new("3".to_string());
-            tag3.set_active(false);
+            let workspace3 = Workspace::new("3".to_string());
+            workspace3.set_active(false);
 
-            let tag4 = Tag::new("4".to_string());
-            tag4.set_active(true);
+            let workspace4 = Workspace::new("4".to_string());
+            workspace4.set_active(true);
 
-            state.add_tags([tag2, tag3, tag4]);
+            state.add_workspaces([workspace2, workspace3, workspace4]);
         });
 
         match lang {
             Lang::Rust => fixture.spawn_blocking(move || {
-                let mut tags = pinnacle_api::output::get_focused()
+                let mut workspaces = pinnacle_api::output::get_focused()
                     .unwrap()
-                    .inactive_tags()
+                    .inactive_workspaces()
                     .map(|t| t.name())
                     .collect::<Vec<_>>();
 
-                tags.sort();
+                workspaces.sort();
 
-                assert_eq!(tags.len(), 2);
-                assert_eq!(tags.as_slice(), ["2", "3"]);
+                assert_eq!(workspaces.len(), 2);
+                assert_eq!(workspaces.as_slice(), ["2", "3"]);
             }),
             Lang::Lua => spawn_lua_blocking! {
                 fixture,
-                local tags = Output.get_focused():inactive_tags()
-                assert(#tags == 2)
+                local workspaces = Output.get_focused():inactive_workspaces()
+                assert(#workspaces == 2)
 
                 local tagnames = {}
-                for k, v in ipairs(tags) do
+                for k, v in ipairs(workspaces) do
                     tagnames[k] = v:name()
                 end
 

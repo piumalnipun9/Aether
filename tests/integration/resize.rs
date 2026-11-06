@@ -1,5 +1,5 @@
 use crate::common::fixture::Fixture;
-use pinnacle::{state::WithState, tag::Tag};
+use pinnacle::{state::WithState, workspace::Workspace};
 use pinnacle_api::layout::LayoutNode;
 use smithay::utils::Rectangle;
 
@@ -8,9 +8,9 @@ fn set_up() -> Fixture {
 
     let output = fixture.add_output(Rectangle::new((0, 0).into(), (1920, 1080).into()));
     output.with_state_mut(|state| {
-        let tag = Tag::new("1".to_string());
-        tag.set_active(true);
-        state.add_tags([tag]);
+        let workspace = Workspace::new("1".to_string());
+        workspace.set_active(true);
+        state.add_workspaces([workspace]);
     });
 
     fixture
