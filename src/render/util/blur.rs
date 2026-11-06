@@ -166,6 +166,15 @@ fn pass(
     Ok(())
 }
 
+/// The size the scene is blurred at.
+fn small_size(output_size: Size<i32, Physical>) -> Size<i32, Physical> {
+    (
+        (output_size.w as f64 / DOWNSCALE).ceil() as i32,
+        (output_size.h as f64 / DOWNSCALE).ceil() as i32,
+    )
+        .into()
+}
+
 /// Textures kept between frames, because a panel is blurred on every one of them.
 #[derive(Debug, Default)]
 pub struct Blur {
@@ -174,6 +183,19 @@ pub struct Blur {
 }
 
 impl Blur {
+    /// Blurs `elements`, which go from the bottom up and were created with the scale
+    /// of the output divided by [`DOWNSCALE`], into a texture of that size.
+    pub fn render_scene(
+        &mut self,
+        renderer: &mut GlesRenderer,
+        elements: impl IntoIterator<Item = impl RenderElement<GlesRenderer>>,
+        output_size: Size<i32, Physical>,
+        small_scale: Scale<f64>,
+    ) -> anyhow::Result<GlesTexture> {
+        let programs = programs(renderer)?;
+        self.blur_scene(renderer, &programs, elements, output_size, small_scale)
+    }
+
     /// Blurs `elements`, which go from the bottom up and were created with the scale
     /// of the output divided by [`DOWNSCALE`], and cuts out `region` of the output with
     /// rounded corners.
@@ -188,10 +210,75 @@ impl Blur {
     ) -> anyhow::Result<CommonTextureRenderElement> {
         let programs = programs(renderer)?;
 
-        let small = Size::<i32, Physical>::from((
-            (output_size.w as f64 / DOWNSCALE).ceil() as i32,
-            (output_size.h as f64 / DOWNSCALE).ceil() as i32,
-        ));
+        let front = self.blur_scene(renderer, &programs, elements, output_size, small_scale)?;
+        let small = small_size(output_size);
+
+        let result_size = region.size.to_logical(1).to_buffer(1, Transform::Normal);
+        if self
+            .result
+            .as_ref()
+            .is_none_or(|result| result.size() != result_size)
+        {
+            self.result = Some(renderer.create_buffer(Fourcc::Abgr8888, result_size)?);
+        }
+        let result = self.result.as_mut().expect("just set");
+
+        let src = Rectangle::<f64, Buffer>::new(
+            (
+                region.loc.x as f64 / DOWNSCALE,
+                region.loc.y as f64 / DOWNSCALE,
+            )
+                .into(),
+            (
+                region.size.w as f64 / DOWNSCALE,
+                region.size.h as f64 / DOWNSCALE,
+            )
+                .into(),
+        );
+        let in_texture = (
+            (src.loc.x / small.w as f64) as f32,
+            (src.loc.y / small.h as f64) as f32,
+            (src.size.w / small.w as f64) as f32,
+            (src.size.h / small.h as f64) as f32,
+        );
+
+        pass(
+            renderer,
+            &front,
+            src,
+            result,
+            &programs.round,
+            &[
+                Uniform::new("region", in_texture),
+                Uniform::new("size", (region.size.w as f32, region.size.h as f32)),
+                Uniform::new("radius", radius),
+            ],
+        )?;
+
+        let buffer =
+            TextureBuffer::from_texture(renderer, result.clone(), 1, Transform::Normal, None);
+        Ok(CommonTextureRenderElement::new(
+            TextureRenderElement::from_texture_buffer(
+                Point::<f64, Physical>::from((region.loc.x as f64, region.loc.y as f64)),
+                &buffer,
+                None,
+                None,
+                None,
+                Kind::Unspecified,
+            ),
+        ))
+    }
+
+    /// Draws `elements` small and blurs them, and gives back the result.
+    fn blur_scene(
+        &mut self,
+        renderer: &mut GlesRenderer,
+        programs: &Programs,
+        elements: impl IntoIterator<Item = impl RenderElement<GlesRenderer>>,
+        output_size: Size<i32, Physical>,
+        small_scale: Scale<f64>,
+    ) -> anyhow::Result<GlesTexture> {
+        let small = small_size(output_size);
         let small_buffer = small.to_logical(1).to_buffer(1, Transform::Normal);
 
         let reusable = self
@@ -230,59 +317,6 @@ impl Blur {
             std::mem::swap(front, back);
         }
 
-        let result_size = region.size.to_logical(1).to_buffer(1, Transform::Normal);
-        if self
-            .result
-            .as_ref()
-            .is_none_or(|result| result.size() != result_size)
-        {
-            self.result = Some(renderer.create_buffer(Fourcc::Abgr8888, result_size)?);
-        }
-        let result = self.result.as_mut().expect("just set");
-
-        let src = Rectangle::<f64, Buffer>::new(
-            (
-                region.loc.x as f64 / DOWNSCALE,
-                region.loc.y as f64 / DOWNSCALE,
-            )
-                .into(),
-            (
-                region.size.w as f64 / DOWNSCALE,
-                region.size.h as f64 / DOWNSCALE,
-            )
-                .into(),
-        );
-        let in_texture = (
-            (src.loc.x / small.w as f64) as f32,
-            (src.loc.y / small.h as f64) as f32,
-            (src.size.w / small.w as f64) as f32,
-            (src.size.h / small.h as f64) as f32,
-        );
-
-        pass(
-            renderer,
-            front,
-            src,
-            result,
-            &programs.round,
-            &[
-                Uniform::new("region", in_texture),
-                Uniform::new("size", (region.size.w as f32, region.size.h as f32)),
-                Uniform::new("radius", radius),
-            ],
-        )?;
-
-        let buffer =
-            TextureBuffer::from_texture(renderer, result.clone(), 1, Transform::Normal, None);
-        Ok(CommonTextureRenderElement::new(
-            TextureRenderElement::from_texture_buffer(
-                Point::<f64, Physical>::from((region.loc.x as f64, region.loc.y as f64)),
-                &buffer,
-                None,
-                None,
-                None,
-                Kind::Unspecified,
-            ),
-        ))
+        Ok(front.clone())
     }
 }

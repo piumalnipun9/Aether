@@ -20,7 +20,7 @@ Pinnacle.setup(function()
         mod_key = "alt"
     end
 
-    local terminal = "alacritty"
+    local terminal = "foot"
 
     --------------------
     -- Mousebinds     --
@@ -491,5 +491,4 @@ Pinnacle.setup(function()
     })
 
     -- Spawning should happen after you add workspaces, as Pinnacle currently doesn't render windows without workspaces.
-    Process.spawn_once(terminal)
 end)

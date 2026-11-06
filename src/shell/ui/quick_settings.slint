@@ -829,7 +829,7 @@ export component QuickSettings inherits Window {
         clip: true;
         border-radius: panel-radius;
         // The shade over the blur, which is dark or light with the theme.
-        background: Theme.surface.with-alpha(0.6);
+        background: Theme.surface.with-alpha(Theme.panel-alpha);
         opacity: min(reveal * 2, 1);
 
         // Clicks here shouldn't reach what's behind the panel's empty parts.

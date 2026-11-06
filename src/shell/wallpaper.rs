@@ -37,12 +37,19 @@ const ACCENT_CHROMA: f64 = 90.0;
 const ACCENT_TONE_DARK: f64 = 72.0;
 const ACCENT_TONE_LIGHT: f64 = 45.0;
 
-/// The size of wallpapers when they're being chosen from.
-const THUMBNAIL_WIDTH: u32 = 480;
-const THUMBNAIL_HEIGHT: u32 = 270;
+/// What a theme is built around when there's no color to take from the wallpaper:
+/// Material's own purple.
+const FALLBACK_SOURCE: Argb = Argb {
+    alpha: 255,
+    red: 0x67,
+    green: 0x50,
+    blue: 0xA4,
+};
 
-/// An RGB color.
-pub type Rgb = [u8; 3];
+/// How colorful a wallpaper's colors have to be to build a theme around.
+const MIN_SOURCE_CHROMA: f64 = 5.0;
+
+pub use aether_common::Rgb;
 
 /// The Material 3 colors the shell uses.
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -61,6 +68,8 @@ pub struct Palette {
 /// The light and dark versions of a theme.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Palettes {
+    /// The color the theme is built around.
+    pub source: Argb,
     pub dark: Palette,
     pub light: Palette,
 }
@@ -70,9 +79,15 @@ impl Palettes {
         if dark { &self.dark } else { &self.light }
     }
 
+    /// The theme for when no wallpaper has a say.
+    pub fn fallback() -> Self {
+        Self::from_source(FALLBACK_SOURCE)
+    }
+
     fn from_source(source: Argb) -> Self {
         let schemes = ThemeBuilder::with_source(source).build().schemes;
         Self {
+            source,
             dark: Palette::new(schemes.dark, source, ACCENT_TONE_DARK),
             light: Palette::new(schemes.light, source, ACCENT_TONE_LIGHT),
         }
@@ -102,6 +117,19 @@ impl Palette {
             on_surface_variant: rgb(on_surface_variant),
             outline_variant: rgb(outline_variant),
             error: rgb(error),
+        }
+    }
+
+    /// These colors for the settings app.
+    pub fn colors(&self) -> aether_common::Colors {
+        aether_common::Colors {
+            surface: self.surface,
+            primary: self.primary,
+            on_primary: self.on_primary,
+            accent: self.accent,
+            on_surface: self.on_surface,
+            on_surface_variant: self.on_surface_variant,
+            error: self.error,
         }
     }
 
@@ -152,6 +180,14 @@ fn source_color(image: &DynamicImage) -> Argb {
         .collect::<Vec<_>>();
 
     let colors = QuantizerCelebi::quantize(&pixels, MAX_PALETTE_COLORS).color_to_count;
+    // A white or gray image has nothing to go on, and scoring would make something up.
+    if !colors
+        .keys()
+        .any(|&color| Hct::new(color).get_chroma() >= MIN_SOURCE_CHROMA)
+    {
+        return FALLBACK_SOURCE;
+    }
+
     Score::score(&colors, Some(1), None, None)[0]
 }
 
@@ -184,39 +220,25 @@ fn zoom(image: &DynamicImage, width: u32, height: u32) -> RgbaImage {
 /// and aren't kept around, so loading for another output decodes the file again.
 /// `contents` of the settings file with `wallpaper` set, which keeps comments intact.
 pub fn with_wallpaper(contents: &str, wallpaper: &str) -> String {
-    let line = format!("wallpaper = {}", toml::Value::from(wallpaper));
-    let is_wallpaper = |text: &&str| text.trim_start().starts_with("wallpaper");
+    with_setting(contents, "wallpaper", toml::Value::from(wallpaper))
+}
+
+/// `contents` of the settings file with `key` set, which keeps comments intact.
+pub fn with_setting(contents: &str, key: &str, value: toml::Value) -> String {
+    let line = format!("{key} = {value}");
+    let is_setting = |text: &&str| {
+        let text = text.trim_start();
+        text.strip_prefix(key)
+            .is_some_and(|rest| rest.trim_start().starts_with('='))
+    };
 
     let mut lines = contents.lines().collect::<Vec<_>>();
-    match lines.iter().position(|text| is_wallpaper(text)) {
+    match lines.iter().position(|text| is_setting(text)) {
         Some(index) => lines[index] = &line,
         None => lines.push(&line),
     }
 
     lines.join("\n") + "\n"
-}
-
-/// Whether `path` looks like an image we can show.
-pub fn is_image(path: &Path) -> bool {
-    path.extension()
-        .and_then(|extension| extension.to_str())
-        .is_some_and(|extension| {
-            matches!(
-                extension.to_lowercase().as_str(),
-                "jpg" | "jpeg" | "png" | "webp"
-            )
-        })
-}
-
-/// A small version of the image at `path` for choosing it.
-pub fn thumbnail(path: &Path) -> Option<RgbaImage> {
-    let image = ImageReader::open(path)
-        .ok()?
-        .with_guessed_format()
-        .ok()?
-        .decode()
-        .ok()?;
-    Some(zoom(&image, THUMBNAIL_WIDTH, THUMBNAIL_HEIGHT))
 }
 
 /// Where screen-sized copies of wallpapers and their colors are kept.
@@ -354,6 +376,10 @@ mod tests {
             "# A comment.\nwallpaper = \"/b.jpg\"\nother = 1\n"
         );
         assert_eq!(with_wallpaper("", "/b.jpg"), "wallpaper = \"/b.jpg\"\n");
+        assert_eq!(
+            with_setting("blur = true\nblurry = 1\n", "blur", false.into()),
+            "blur = false\nblurry = 1\n"
+        );
     }
 
     #[test]
@@ -427,6 +453,18 @@ mod tests {
         let image = image_with_accent([14, 15, 26], [200, 20, 20]);
         let [red, green, blue] = Palettes::from_source(source_color(&image)).dark.primary;
         assert!(red > green && red > blue, "{:?}", [red, green, blue]);
+    }
+
+    #[test]
+    fn plain_images_get_the_fallback_theme() {
+        for color in [[255, 255, 255], [128, 128, 128], [0, 0, 0]] {
+            let image = DynamicImage::ImageRgba8(RgbaImage::from_pixel(
+                64,
+                64,
+                image::Rgba([color[0], color[1], color[2], 255]),
+            ));
+            assert_eq!(source_color(&image), FALLBACK_SOURCE);
+        }
     }
 
     #[test]

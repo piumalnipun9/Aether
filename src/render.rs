@@ -3,6 +3,7 @@
 pub mod border;
 pub mod pointer;
 pub mod render_elements;
+pub mod rounded;
 pub mod texture;
 pub mod util;
 
@@ -13,10 +14,11 @@ use smithay::{
         element::{
             self, AsRenderElements, Element, RenderElementStates,
             solid::SolidColorRenderElement,
-            utils::RescaleRenderElement,
             surface::{WaylandSurfaceRenderElement, render_elements_from_surface_tree},
+            utils::RescaleRenderElement,
         },
         gles::GlesRenderer,
+        utils::CommitCounter,
     },
     desktop::{
         PopupManager, Space, WindowSurface, layer_map_for_output,
@@ -41,10 +43,12 @@ use crate::{
 };
 
 use self::{
-    pointer::PointerRenderElement, util::surface::texture_render_elements_from_surface_tree,
+    pointer::PointerRenderElement,
+    rounded::{RoundedElement, Rounding},
+    util::surface::texture_render_elements_from_surface_tree,
 };
 
-pub const CLEAR_COLOR: [f32; 4] = [0.08, 0.08, 0.08, 1.0];
+pub const CLEAR_COLOR: [f32; 4] = [0.078, 0.071, 0.094, 1.0];
 pub const CLEAR_COLOR_LOCKED: [f32; 4] = [0.2, 0.0, 0.3, 1.0];
 
 pinnacle_render_elements! {
@@ -62,6 +66,20 @@ pinnacle_render_elements! {
         Shell = element::memory::MemoryRenderBufferRenderElement<R>,
         /// The blurred scene behind quick settings.
         Backdrop = texture::CommonTextureRenderElement,
+        /// A window's border.
+        Border = border::BorderElement,
+        /// A window surface with rounded corners.
+        RoundedSurface = RoundedElement<WaylandSurfaceRenderElement<R>>,
+        /// The same, scaled by an animation.
+        RescaledRoundedSurface = RescaleRenderElement<RoundedElement<WaylandSurfaceRenderElement<R>>>,
+        /// A window snapshot with rounded corners.
+        RoundedSnapshot = RoundedElement<SnapshotRenderElement>,
+        /// The same, scaled by an animation.
+        RescaledRoundedSnapshot = RescaleRenderElement<RoundedElement<SnapshotRenderElement>>,
+        /// The blurred wallpaper behind a window.
+        WindowBackdrop = RoundedElement<texture::CommonTextureRenderElement>,
+        /// The same, scaled by an animation.
+        RescaledWindowBackdrop = RescaleRenderElement<RoundedElement<texture::CommonTextureRenderElement>>,
     }
 }
 
@@ -502,16 +520,25 @@ fn window_render_elements<R: PRenderer + AsGlesRenderer>(
         .output_geometry(output)
         .map(|geo| geo.size.w)
         .unwrap_or_default();
-    let (old_ws_offset, new_ws_offset, switching) = output.with_state(|state| {
-        match state.workspace_switch.as_ref() {
+    let (old_ws_offset, new_ws_offset, switching) =
+        output.with_state(|state| match state.workspace_switch.as_ref() {
             Some(switch) => {
                 let (old, new) = switch.offsets(output_width);
                 (old, new, true)
             }
             None => (0.0, 0.0, false),
-        }
-    });
+        });
     let new_ws_offset = Point::<f64, Logical>::from((new_ws_offset, 0.0));
+
+    let style = output.with_state(|state| state.window_style);
+    let output_rect = space
+        .output_geometry(output)
+        .map(|geo| Rectangle::from_size(geo.size.to_physical_precise_round(scale)))
+        .unwrap_or_default();
+    let blurred = style
+        .blur
+        .then(|| crate::shell::BlurredWallpaper::for_output(output, space, renderer))
+        .flatten();
 
     let mut fullscreen_and_up = renderables
         .into_iter()
@@ -532,6 +559,21 @@ fn window_render_elements<R: PRenderer + AsGlesRenderer>(
                 let loc = loc.to_i32_round();
 
                 let appearance = win.open_appearance();
+                let fullscreen = win.with_state(|state| state.layout_mode.is_fullscreen());
+                let radius = if fullscreen { 0 } else { style.radius };
+                let window_rect = Rectangle::<i32, Physical>::new(
+                    loc.to_physical_precise_round(scale),
+                    win.geometry().size.to_physical_precise_round(scale),
+                );
+                let rounding = (radius > 0)
+                    .then(|| {
+                        Rounding::new(
+                            renderer.as_gles_renderer(),
+                            window_rect,
+                            radius as f32 * scale.x as f32,
+                        )
+                    })
+                    .flatten();
 
                 let SplitRenderElements {
                     surface_elements,
@@ -570,27 +612,87 @@ fn window_render_elements<R: PRenderer + AsGlesRenderer>(
                         colors.unfocused
                     };
                     win.with_state_mut(|state| {
-                        state
-                            .border
-                            .render_elements(rect, color, appearance.border_alpha, scale)
+                        state.border.render_element(
+                            renderer.as_gles_renderer(),
+                            rect,
+                            color,
+                            appearance.border_alpha,
+                            radius,
+                            scale,
+                        )
                     })
                 } else {
-                    Vec::new()
+                    None
                 };
                 let border_elements = border_elements.into_iter().map(OutputRenderElement::from);
 
-                let iter: Box<dyn Iterator<Item = OutputRenderElement<R>>> = match elem_scale {
-                    None => Box::new(surface_elements.into_iter().map(OutputRenderElement::from)),
-                    Some(elem_scale) => {
-                        let origin = origin.to_physical_precise_round(scale);
-                        Box::new(surface_elements.into_iter().map(move |elem| {
-                            OutputRenderElement::from(RescaleRenderElement::from_element(
-                                elem, origin, elem_scale,
-                            ))
-                        }))
+                // The wallpaper shows through windows that let it, as long as nothing
+                // covers them entirely.
+                let backdrop_element = blurred.as_ref().and_then(|blurred| {
+                    if fullscreen || win.is_x11_override_redirect() {
+                        return None;
                     }
-                };
-                Box::new(iter.chain(border_elements)) as Box<dyn Iterator<Item = _>>
+                    blurred.element(
+                        renderer.as_gles_renderer(),
+                        win,
+                        window_rect,
+                        output_rect,
+                        appearance.alpha,
+                        scale,
+                    )
+                });
+                let rounding_for_backdrop = (radius > 0).then(|| rounding.clone()).flatten();
+
+                let iter: Box<dyn Iterator<Item = OutputRenderElement<R>>> =
+                    match (elem_scale, rounding) {
+                        (None, None) => {
+                            Box::new(surface_elements.into_iter().map(OutputRenderElement::from))
+                        }
+                        (None, Some(rounding)) => {
+                            Box::new(surface_elements.into_iter().map(move |elem| {
+                                OutputRenderElement::from(rounding.surface(elem, scale))
+                            }))
+                        }
+                        (Some(elem_scale), None) => {
+                            let origin = origin.to_physical_precise_round(scale);
+                            Box::new(surface_elements.into_iter().map(move |elem| {
+                                OutputRenderElement::from(RescaleRenderElement::from_element(
+                                    elem, origin, elem_scale,
+                                ))
+                            }))
+                        }
+                        (Some(elem_scale), Some(rounding)) => {
+                            let origin = origin.to_physical_precise_round(scale);
+                            Box::new(surface_elements.into_iter().map(move |elem| {
+                                OutputRenderElement::from(RescaleRenderElement::from_element(
+                                    rounding.surface(elem, scale),
+                                    origin,
+                                    elem_scale,
+                                ))
+                            }))
+                        }
+                    };
+
+                let backdrop =
+                    backdrop_element.and_then(|(element, texture_size, src, geometry)| {
+                        let rounding = match rounding_for_backdrop {
+                            Some(rounding) => rounding,
+                            None => Rounding::new(renderer.as_gles_renderer(), window_rect, 0.0)?,
+                        };
+                        let element = rounding.region(element, texture_size, src, geometry);
+                        Some(match elem_scale {
+                            None => OutputRenderElement::from(element),
+                            Some(elem_scale) => {
+                                OutputRenderElement::from(RescaleRenderElement::from_element(
+                                    element,
+                                    origin.to_physical_precise_round(scale),
+                                    elem_scale,
+                                ))
+                            }
+                        })
+                    });
+
+                Box::new(iter.chain(border_elements).chain(backdrop)) as Box<dyn Iterator<Item = _>>
             }
             itertools::Either::Right(snap) => {
                 // The old workspace's windows are drawn from the switch's own snapshots.
@@ -606,19 +708,41 @@ fn window_render_elements<R: PRenderer + AsGlesRenderer>(
                 let elem = snap
                     .snapshot
                     .render_elements(renderer, loc, scale, appearance.alpha);
+                let rounding = (style.radius > 0 && !snap.fullscreen)
+                    .then(|| {
+                        Rounding::new(
+                            renderer.as_gles_renderer(),
+                            Rectangle::default(),
+                            style.radius as f32 * scale.x as f32,
+                        )
+                    })
+                    .flatten();
                 let iter: Box<dyn Iterator<Item = OutputRenderElement<R>>> =
-                    if appearance.is_identity() {
-                        Box::new(elem.into_iter().map(OutputRenderElement::from))
-                    } else {
-                        Box::new(elem.into_iter().map(move |elem| {
+                    match (appearance.is_identity(), rounding) {
+                        (true, None) => Box::new(elem.into_iter().map(OutputRenderElement::from)),
+                        (true, Some(rounding)) => Box::new(elem.into_iter().map(move |elem| {
+                            OutputRenderElement::from(rounding.whole(elem, scale))
+                        })),
+                        (false, rounding) => Box::new(elem.into_iter().map(move |elem| {
                             let geo = elem.geometry(scale);
                             let origin = geo.loc + geo.size.downscale(2).to_point();
-                            OutputRenderElement::from(RescaleRenderElement::from_element(
-                                elem,
-                                origin,
-                                appearance.scale,
-                            ))
-                        }))
+                            match &rounding {
+                                Some(rounding) => {
+                                    OutputRenderElement::from(RescaleRenderElement::from_element(
+                                        rounding.whole(elem, scale),
+                                        origin,
+                                        appearance.scale,
+                                    ))
+                                }
+                                None => {
+                                    OutputRenderElement::from(RescaleRenderElement::from_element(
+                                        elem,
+                                        origin,
+                                        appearance.scale,
+                                    ))
+                                }
+                            }
+                        })),
                     };
                 iter
             }
@@ -638,9 +762,21 @@ fn window_render_elements<R: PRenderer + AsGlesRenderer>(
                 .filter_map(|(snapshot, loc)| {
                     let loc = (loc.to_f64() + Point::from((old_ws_offset, 0.0)))
                         .to_physical_precise_round(scale);
-                    snapshot.render_elements(renderer, loc, scale, 1.0)
+                    let element = snapshot.render_elements(renderer, loc, scale, 1.0)?;
+                    let rounding = (style.radius > 0)
+                        .then(|| {
+                            Rounding::new(
+                                renderer.as_gles_renderer(),
+                                Rectangle::default(),
+                                style.radius as f32 * scale.x as f32,
+                            )
+                        })
+                        .flatten();
+                    Some(match rounding {
+                        Some(rounding) => OutputRenderElement::from(rounding.whole(element, scale)),
+                        None => OutputRenderElement::from(element),
+                    })
                 })
-                .map(OutputRenderElement::from)
                 .collect::<Vec<_>>()
         });
         fullscreen_and_up.push(Box::new(old_elements.into_iter()));
@@ -683,6 +819,22 @@ pub fn output_render_elements<R: PRenderer + AsGlesRenderer>(
     } = window_render_elements::<R>(output, space, renderer, scale, z_index_stack);
 
     // Elements render from top to bottom
+
+    // Things that change how windows look don't count as damage on their own.
+    if output.with_state_mut(|state| {
+        let redraw = state.full_redraws > 0;
+        state.full_redraws = state.full_redraws.saturating_sub(1);
+        redraw
+    }) && let Some(geo) = space.output_geometry(output)
+    {
+        output_render_elements.push(OutputRenderElement::from(SolidColorRenderElement::new(
+            element::Id::new(),
+            Rectangle::from_size(geo.size.to_physical_precise_round(scale)),
+            CommitCounter::default(),
+            [0.0, 0.0, 0.0, 0.0],
+            element::Kind::Unspecified,
+        )));
+    }
 
     output_render_elements.extend(crate::shell::panel_render_elements(output, renderer, space));
     output_render_elements.extend(layer_popups.into_iter().map(OutputRenderElement::from));

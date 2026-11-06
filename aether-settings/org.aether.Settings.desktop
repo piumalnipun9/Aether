@@ -1,0 +1,10 @@
+[Desktop Entry]
+Type=Application
+Name=Settings
+Comment=Change how your computer works
+Exec=aether-settings
+Icon=preferences-system
+Terminal=false
+Categories=Settings;System;
+StartupWMClass=org.aether.Settings
+OnlyShowIn=pinnacle;

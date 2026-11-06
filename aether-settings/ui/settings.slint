@@ -3,11 +3,14 @@
 // The settings app, modelled on Android's on a tablet: a list of topics next to the
 // one that's open.
 
-import { Icons } from "icons.slint";
-import { Icon, Motion, Theme } from "theme.slint";
+import { Icons } from "../../src/shell/ui/icons.slint";
+import { Icon, Motion, Theme } from "../../src/shell/ui/theme.slint";
 import {
     BluetoothItem, NetworkItem, PasswordPrompt, Row, Section, SinkItem, Slider, Switch,
-} from "quick_settings.slint";
+} from "../../src/shell/ui/quick_settings.slint";
+
+export { Theme }
+export { BluetoothItem, NetworkItem, SinkItem }
 
 export enum SettingsPage {
     network,
@@ -237,9 +240,9 @@ component Chip {
 }
 
 export component SettingsApp inherits Window {
-    // Asked to be open. It stays on screen until it has animated away.
-    in property <bool> open;
     in property <SettingsPage> page;
+    // When there's only room for one thing, whether that's the open topic and not the list.
+    in-out property <bool> detail-open: true;
     in property <[TopicItem]> topics;
     out property <string> query: search.text;
 
@@ -271,12 +274,12 @@ export component SettingsApp inherits Window {
     in property <bool> power-saver;
     in property <bool> power-saver-available;
     in property <bool> stay-awake;
+    in property <bool> rounded-corners;
+    in property <bool> blur;
 
     in property <[InfoItem]> about;
 
     // How much of the panel is visible right now, for the blur behind it.
-    out property <length> panel-height: self.height * reveal;
-    out property <length> panel-radius: 28px;
 
     callback closed();
     callback query-changed(string);
@@ -300,20 +303,17 @@ export component SettingsApp inherits Window {
     callback notifications-cleared();
     callback power-saver-toggled();
     callback stay-awake-toggled();
+    callback rounded-corners-toggled();
+    callback blur-toggled();
 
     public function focus-search() {
         search.focus();
     }
 
-    property <float> reveal: open ? 1 : 0;
+    property <bool> narrow: self.width < 680px;
     property <[float]> scales: [1, 1.25, 1.5, 1.75, 2];
     property <string> prompt-ssid;
     property <string> forget-ssid;
-
-    animate reveal {
-        duration: Motion.long;
-        easing: Motion.emphasized;
-    }
 
     function page-title() -> string {
         if page == SettingsPage.network {
@@ -383,26 +383,23 @@ export component SettingsApp inherits Window {
         return Icons.devices;
     }
 
-    background: transparent;
+    title: "Settings";
+    no-frame: true;
+    preferred-width: 960px;
+    preferred-height: 680px;
+    background: Theme.surface;
     default-font-family: "Inter";
 
     Rectangle {
-        y: 0;
-        height: panel-height;
         clip: true;
-        border-radius: panel-radius;
-        // The shade over the blur, which is dark or light with the theme.
-        background: Theme.surface.with-alpha(0.72);
-        opacity: min(reveal * 2, 1);
-
-        TouchArea { }
 
         // The topics.
         Rectangle {
             x: Sizes.padding;
             y: Sizes.padding;
-            width: Sizes.list-width;
+            width: narrow ? root.width - Sizes.padding * 2 : Sizes.list-width;
             height: root.height - Sizes.padding * 2;
+            visible: !narrow || !detail-open;
 
             Text {
                 x: 8px;
@@ -481,15 +478,38 @@ export component SettingsApp inherits Window {
 
         // The open topic.
         Rectangle {
-            x: Sizes.padding * 2 + Sizes.list-width;
+            x: narrow ? Sizes.padding : Sizes.padding * 2 + Sizes.list-width;
             y: Sizes.padding;
             width: root.width - self.x - Sizes.padding;
             height: root.height - Sizes.padding * 2;
+            visible: !narrow || detail-open;
+
+            if narrow: Rectangle {
+                x: 0;
+                y: 2px;
+                width: 36px;
+                height: 36px;
+                border-radius: self.height / 2;
+                background: back-touch.has-hover ? Theme.on-surface.with-alpha(0.14) : transparent;
+
+                Icon {
+                    x: 8px;
+                    y: 8px;
+                    size: 20px;
+                    commands: Icons.arrow-back;
+                }
+
+                back-touch := TouchArea {
+                    clicked => {
+                        root.detail-open = false;
+                    }
+                }
+            }
 
             Text {
-                x: 8px;
+                x: narrow ? 44px : 8px;
                 y: 0;
-                width: parent.width - 60px;
+                width: parent.width - self.x - 52px;
                 height: 40px;
                 text: page-title();
                 font-size: 22px;
@@ -649,6 +669,28 @@ export component SettingsApp inherits Window {
                                     clicked => {
                                         root.bluetooth-clicked(device.id);
                                     }
+                                }
+                            }
+                        }
+                    }
+
+                    if page == SettingsPage.style: Group {
+                        VerticalLayout {
+                            SwitchRow {
+                                title: "Rounded corners";
+                                subtitle: "Square corners when off";
+                                on: rounded-corners;
+                                toggled => {
+                                    root.rounded-corners-toggled();
+                                }
+                            }
+
+                            SwitchRow {
+                                title: "Blur";
+                                subtitle: "Behind windows and panels";
+                                on: blur;
+                                toggled => {
+                                    root.blur-toggled();
                                 }
                             }
                         }

@@ -2,17 +2,18 @@
 
 // What all of the shell's UI shares.
 
-// Material 3 colors. These stand-ins are neutral, as they're only seen until the
-// wallpaper's palette is known, and shouldn't look like a theme of their own.
+// Material 3 colors, with Material's purple for when there's no wallpaper to go by.
 export global Theme {
-    in property <color> surface: #161616;
-    in property <color> primary: #D4D4D4;
-    in property <color> on-primary: #262626;
-    in property <color> on-surface: #E6E6E6;
-    in property <color> on-surface-variant: #C4C4C4;
+    in property <color> surface: #141218;
+    in property <color> primary: #D0BCFF;
+    in property <color> on-primary: #381E72;
+    in property <color> on-surface: #E6E0E9;
+    in property <color> on-surface-variant: #CAC4D0;
     in property <color> error: #F2B8B5;
     // More saturated than `primary`, for things that are active.
-    in property <color> accent: #D4D4D4;
+    in property <color> accent: #D0BCFF;
+    // How solid panels are, which is more so without anything blurred behind them.
+    in property <float> panel-alpha: 0.6;
 }
 
 // Material 3 motion tokens.

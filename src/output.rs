@@ -80,6 +80,10 @@ pub struct OutputState {
     pub workspace_switch: Option<crate::animation::WorkspaceSwitch>,
     /// Colors for window borders on this output.
     pub border_colors: crate::render::border::BorderColors,
+    /// How windows look.
+    pub window_style: crate::render::border::WindowStyle,
+    /// How many more frames have to be drawn in full, for what isn't noticed as damage.
+    pub full_redraws: u8,
 
     /// This output's top bar.
     pub bar: Option<crate::shell::OutputBar>,
@@ -91,8 +95,8 @@ pub struct OutputState {
     pub toasts: Option<crate::shell::OutputToasts>,
     /// The app launcher, while it's on screen.
     pub launcher: Option<crate::shell::OutputLauncher>,
-    /// The settings app, while it's on screen.
-    pub settings: Option<crate::shell::OutputSettings>,
+    /// Choosing what a screenshot shows.
+    pub screenshot: Option<crate::shell::OutputScreenshot>,
 
     /// This output's wallpaper.
     pub wallpaper: Option<crate::shell::OutputWallpaper>,
@@ -117,12 +121,14 @@ impl Default for OutputState {
             is_vrr_on_demand: false,
             workspace_switch: None,
             border_colors: Default::default(),
+            window_style: Default::default(),
+            full_redraws: 0,
             bar: None,
             panel: None,
             clock: None,
             toasts: None,
             launcher: None,
-            settings: None,
+            screenshot: None,
             wallpaper: None,
         }
     }

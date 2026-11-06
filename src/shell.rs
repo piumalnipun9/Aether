@@ -16,17 +16,19 @@
 //! The quick settings tiles are kept in `quick-settings.toml` next to it, which quick
 //! settings writes itself when they're edited.
 
-mod about;
 mod apps;
 mod calendar;
+mod capture;
 mod clock;
+mod ipc;
 mod launcher;
 mod notifications;
 mod quick_settings;
+mod screenshot;
 mod search;
-mod settings_app;
 mod status;
 mod system;
+mod theme_export;
 mod wallpaper;
 
 use std::{
@@ -43,6 +45,7 @@ use std::{
     time::{Duration, Instant},
 };
 
+use aether_common::{Page as SettingsPage, Request, SETTINGS_APP_ID, Snapshot};
 use image::RgbaImage;
 use serde::Deserialize;
 use slint::{
@@ -56,9 +59,15 @@ use slint::{
 use smithay::{
     backend::{
         allocator::Fourcc,
-        renderer::element::{
-            Kind,
-            memory::{MemoryRenderBuffer, MemoryRenderBufferRenderElement},
+        renderer::{
+            Bind, ExportMem, Renderer, Texture,
+            element::{
+                Element, Kind,
+                memory::{MemoryRenderBuffer, MemoryRenderBufferRenderElement},
+                texture::TextureRenderElement,
+            },
+            gles::{GlesRenderer, GlesTexture},
+            utils::DamageSnapshot,
         },
     },
     desktop::{Space, layer_map_for_output},
@@ -66,7 +75,7 @@ use smithay::{
     output::{Output, WeakOutput},
     reexports::calloop::channel::{self, Event, Sender},
     render_elements,
-    utils::{Logical, Physical, Point, Rectangle, Scale, Size, Transform},
+    utils::{Buffer, Logical, Physical, Point, Rectangle, Scale, Size, Transform},
     wayland::shell::wlr_layer,
 };
 use tracing::{error, warn};
@@ -77,7 +86,7 @@ use self::{
     launcher::{LauncherAction, Target},
     notifications::{CloseReason, Notification},
     quick_settings::{Place, TileKind, Tiles},
-    settings_app::{OutputDetails, PAGES, SettingsAction},
+    screenshot::ScreenshotAction,
     status::{Radio, Sound, Status},
     system::{Command, System, Watching},
     wallpaper::{Palette, Palettes, Rgb},
@@ -85,7 +94,7 @@ use self::{
 pub use self::{
     clock::{OutputClock, OutputToasts},
     launcher::OutputLauncher,
-    settings_app::OutputSettings,
+    screenshot::OutputScreenshot,
 };
 use crate::{
     api::workspace::switch_to,
@@ -93,8 +102,11 @@ use crate::{
     output::OutputState,
     render::{
         AsGlesRenderer, OutputRenderElement, PRenderer,
+        border::{CORNER_RADIUS, WindowStyle},
+        texture::CommonTextureRenderElement,
         util::{
             blur::{Blur, DOWNSCALE},
+            render_to_texture,
             surface::{WlSurfaceTextureRenderElement, texture_render_elements_from_surface_tree},
         },
     },
@@ -127,6 +139,16 @@ const SEARCH_REFRESH_INTERVAL: Duration = Duration::from_secs(300);
 
 /// The file the shell's settings are in, in the config directory.
 const SETTINGS_FILE: &str = "shell.toml";
+
+/// How many frames are drawn in full for a change to reach every buffer of a swapchain.
+const FULL_REDRAWS: u8 = 3;
+
+/// The id of the notification about screenshots, far from those of apps.
+const SCREENSHOT_NOTIFICATION: u32 = u32::MAX;
+const SCREENSHOT_NOTIFICATION_TIME: Duration = Duration::from_secs(4);
+
+/// The settings app's program.
+const SETTINGS_PROGRAM: &str = "aether-settings";
 
 /// How often the clock is reformatted.
 const CLOCK_INTERVAL: Duration = Duration::from_secs(1);
@@ -197,18 +219,18 @@ pub struct Shell {
     apps_generation: u32,
     /// When the apps were last looked for.
     apps_scanned: Option<Instant>,
+    /// The theme other apps have last been told about, and whether it was with blur.
+    exported_theme: Option<(Palettes, bool, bool)>,
     /// How often each app was opened, by its id.
     launch_counts: HashMap<String, u32>,
     /// The files search looks through.
     files: Vec<PathBuf>,
-    /// The wallpapers to choose from, with small versions of them.
-    wallpapers: Vec<(PathBuf, RgbaImage)>,
-    /// Whether wallpapers were looked for.
-    wallpapers_requested: bool,
-    /// Whether Super was pressed with nothing else since, which makes it a tap so far.
-    super_tapping: bool,
+    /// A page the settings app was asked to open while running.
+    settings_page: Option<SettingsPage>,
     /// Whether the launcher was asked for from the keyboard.
     launcher_requested: bool,
+    /// Whether a screenshot was asked for.
+    screenshot_requested: bool,
     /// Whether the tiles are being rearranged.
     editing: bool,
     /// The tile being edited.
@@ -221,10 +243,45 @@ pub struct Shell {
 }
 
 /// The contents of `shell.toml`.
-#[derive(Debug, Default, Deserialize)]
+#[derive(Debug, Deserialize)]
 #[serde(default, deny_unknown_fields)]
 struct Settings {
     wallpaper: Option<PathBuf>,
+    /// Whether windows have rounded corners.
+    rounded_corners: bool,
+    /// Whether what's behind windows and panels gets blurred.
+    blur: bool,
+}
+
+impl Default for Settings {
+    fn default() -> Self {
+        Self {
+            wallpaper: None,
+            rounded_corners: true,
+            blur: true,
+        }
+    }
+}
+
+impl Shell {
+    /// Tells other apps about the theme, if there's anything new to tell.
+    fn export_theme(&mut self) {
+        let Some(palettes) = self.palette else {
+            return;
+        };
+        let (dark, blur) = (self.dark, self.settings.blur);
+        if self.exported_theme == Some((palettes, dark, blur)) {
+            return;
+        }
+        self.exported_theme = Some((palettes, dark, blur));
+
+        let spawned = thread::Builder::new()
+            .name("shell-theme".into())
+            .spawn(move || theme_export::export(&palettes, dark, blur));
+        if let Err(err) = spawned {
+            error!("Failed to start sharing the theme: {err}");
+        }
+    }
 }
 
 impl Settings {
@@ -255,6 +312,16 @@ impl Settings {
         let contents = fs::read_to_string(&path).unwrap_or_default();
 
         if let Err(err) = fs::write(&path, wallpaper::with_wallpaper(&contents, wallpaper)) {
+            error!("Failed to write {}: {err}", path.display());
+        }
+    }
+
+    /// Saves a setting that's on or off, leaving the rest of the file as it is.
+    fn write_switch(config_dir: &Path, key: &str, on: bool) {
+        let path = config_dir.join(SETTINGS_FILE);
+        let contents = fs::read_to_string(&path).unwrap_or_default();
+
+        if let Err(err) = fs::write(&path, wallpaper::with_setting(&contents, key, on.into())) {
             error!("Failed to write {}: {err}", path.display());
         }
     }
@@ -300,7 +367,12 @@ enum Message {
     Notification(notifications::Event),
     Apps(Vec<App>),
     Files(Vec<PathBuf>),
-    Thumbnail(PathBuf, RgbaImage),
+    /// A request from the settings app, and where its answer goes.
+    Settings(Request, mpsc::Sender<String>),
+    /// A settings app went away.
+    SettingsGone,
+    /// A screenshot was saved, or what went wrong.
+    ScreenshotSaved(Result<PathBuf, String>),
     Palette(Palettes),
     Wallpaper {
         output: String,
@@ -316,6 +388,119 @@ pub struct OutputWallpaper {
     requested: (Size<i32, Physical>, Size<i32, Logical>),
     /// Stays empty until the wallpaper has loaded. This comes with its size in pixels.
     buffer: Option<(MemoryRenderBuffer, Size<i32, Physical>)>,
+    /// A small blurred version, made when it's first needed.
+    blurred: Option<GlesTexture>,
+}
+
+/// The output's wallpaper, blurred, to go behind windows.
+///
+/// Only the wallpaper is behind tiled windows, and blurring it once beats blurring what's
+/// on screen every frame. A floating window over another also shows the wallpaper.
+pub struct BlurredWallpaper {
+    texture: GlesTexture,
+}
+
+/// What [`BlurredWallpaper::element`] gives: the element, the size of its
+/// texture, what's shown of that, and where.
+type WindowBackdrop = (
+    CommonTextureRenderElement,
+    Size<f64, Buffer>,
+    Rectangle<f64, Buffer>,
+    Rectangle<i32, Physical>,
+);
+
+impl BlurredWallpaper {
+    pub fn for_output<R: PRenderer + AsGlesRenderer>(
+        output: &Output,
+        space: &Space<WindowElement>,
+        renderer: &mut R,
+    ) -> Option<Self> {
+        if let Some(texture) = output.with_state(|state| state.wallpaper.as_ref()?.blurred.clone())
+        {
+            return Some(Self { texture });
+        }
+
+        let geo = space.output_geometry(output)?;
+        let scale = output.current_scale().fractional_scale();
+        let renderer = renderer.as_gles_renderer();
+
+        let element = output.with_state(|state| {
+            let (buffer, pixel_size) = state.wallpaper.as_ref()?.buffer.as_ref()?;
+            memory_element(renderer, Point::default(), buffer, *pixel_size, geo.size)
+        })?;
+
+        let texture = Blur::default()
+            .render_scene(
+                renderer,
+                [element],
+                geo.size.to_f64().to_physical(scale).to_i32_round(),
+                Scale::from(scale / DOWNSCALE),
+            )
+            .inspect_err(|err| warn!("Failed to blur the wallpaper: {err:#}"))
+            .ok()?;
+
+        output.with_state_mut(|state| {
+            if let Some(wallpaper) = state.wallpaper.as_mut() {
+                wallpaper.blurred = Some(texture.clone());
+            }
+        });
+
+        Some(Self { texture })
+    }
+
+    /// What goes behind a window at `window`, which only has to be visible on `output`.
+    pub fn element(
+        &self,
+        renderer: &mut GlesRenderer,
+        window: &WindowElement,
+        rect: Rectangle<i32, Physical>,
+        output: Rectangle<i32, Physical>,
+        alpha: f32,
+        scale: Scale<f64>,
+    ) -> Option<WindowBackdrop> {
+        let visible = rect.intersection(output)?;
+
+        let src = Rectangle::<f64, Logical>::new(
+            (
+                visible.loc.x as f64 / DOWNSCALE,
+                visible.loc.y as f64 / DOWNSCALE,
+            )
+                .into(),
+            (
+                visible.size.w as f64 / DOWNSCALE,
+                visible.size.h as f64 / DOWNSCALE,
+            )
+                .into(),
+        );
+        let size = visible.size.to_f64().to_logical(scale).to_i32_round();
+
+        let element = TextureRenderElement::from_texture_with_damage(
+            window.with_state(|state| state.backdrop_id.clone()),
+            renderer.context_id(),
+            (visible.loc.x as f64, visible.loc.y as f64),
+            self.texture.clone(),
+            1,
+            Transform::Normal,
+            Some(alpha),
+            Some(src),
+            Some(size),
+            None,
+            DamageSnapshot::empty(),
+            Kind::Unspecified,
+        );
+        let geometry = element.geometry(scale);
+        let texture_size = self.texture.size();
+
+        Some((
+            CommonTextureRenderElement::new(element),
+            (texture_size.w as f64, texture_size.h as f64).into(),
+            Rectangle::new(
+                (src.loc.x, src.loc.y).into(),
+                (src.size.w, src.size.h).into(),
+            ),
+            geometry,
+        ))
+    }
 }
 
 impl OutputWallpaper {
@@ -386,7 +571,8 @@ struct BarContent {
     status: Status,
 }
 
-fn apply_palette(theme: Theme<'_>, palette: &Palette) {
+fn apply_palette(theme: Theme<'_>, palette: &Palette, blur: bool) {
+    theme.set_panel_alpha(if blur { 0.6 } else { 0.96 });
     let color = |[r, g, b]: Rgb| Color::from_rgb_u8(r, g, b);
     theme.set_surface(color(palette.surface));
     theme.set_primary(color(palette.primary));
@@ -405,7 +591,7 @@ pub enum ShellSurface {
     Clock,
     Toasts,
     Launcher,
-    Settings,
+    Screenshot,
 }
 
 /// A Slint window drawn into a buffer.
@@ -1080,6 +1266,24 @@ pub fn panel_render_elements<R: PRenderer + AsGlesRenderer>(
         return Vec::new();
     };
 
+    // The screen stays as it was until it's decided what to keep of it.
+    let screenshot = output.with_state(|state| {
+        let screenshot = state.screenshot.as_ref()?;
+        let overlay = screenshot.window.render_element(renderer, Point::default());
+        let frozen = memory_element(
+            renderer,
+            Point::default(),
+            &screenshot.frozen,
+            screenshot.pixel_size,
+            output_geo.size,
+        );
+        Some((overlay, frozen))
+    });
+    if let Some((overlay, frozen)) = screenshot {
+        return overlay.into_iter().chain(frozen).map(Into::into).collect();
+    }
+
+    let blur_on = output.with_state(|state| state.window_style.blur);
     let needs_backdrop =
         output.with_state(|state| !blurred_panels(state, output_geo.size.w).is_empty());
 
@@ -1096,6 +1300,16 @@ pub fn panel_render_elements<R: PRenderer + AsGlesRenderer>(
     }));
 
     if !needs_backdrop {
+        return elements;
+    }
+
+    if !blur_on {
+        output.with_state(|state| {
+            for (window, _, area, _) in blurred_panels(state, output_geo.size.w) {
+                let location = area.loc.to_f64().to_physical(output_scale).to_i32_round();
+                elements.extend(window.render_element(renderer, location).map(Into::into));
+            }
+        });
         return elements;
     }
 
@@ -1224,16 +1438,8 @@ fn blurred_panels(
             launcher.ui.get_panel_radius(),
         )
     });
-    let settings = state.settings.as_ref().map(|settings| {
-        (
-            &settings.window,
-            &settings.blur,
-            settings.visible_area(output_width),
-            settings.ui.get_panel_radius(),
-        )
-    });
 
-    [quick_settings, clock, launcher, settings]
+    [quick_settings, clock, launcher]
         .into_iter()
         .flatten()
         .filter(|(_, _, area, _)| area.size.h > 0)
@@ -1312,6 +1518,14 @@ impl Pinnacle {
         let geo = self.space.output_geometry(output)?;
 
         output.with_state(|state| {
+            if state.screenshot.is_some() {
+                let area = Rectangle::from_size(geo.size);
+                return area
+                    .to_f64()
+                    .contains(location)
+                    .then(|| (ShellSurface::Screenshot, geo.loc.to_f64()));
+            }
+
             let toasts = state
                 .toasts
                 .as_ref()
@@ -1329,12 +1543,8 @@ impl Pinnacle {
                 .launcher
                 .as_ref()
                 .map(|launcher| (ShellSurface::Launcher, launcher.visible_area(geo.size.w)));
-            let settings = state
-                .settings
-                .as_ref()
-                .map(|settings| (ShellSurface::Settings, settings.visible_area(geo.size.w)));
 
-            [toasts, panel, clock, launcher, settings]
+            [toasts, panel, clock, launcher]
                 .into_iter()
                 .flatten()
                 .find_map(|(surface, mut area)| {
@@ -1371,6 +1581,30 @@ impl State {
         if let Err(err) = inserted {
             error!("Failed to listen to the shell's threads: {err}");
             return;
+        }
+
+        let socket = self
+            .pinnacle
+            .socket_name
+            .to_str()
+            .and_then(aether_common::socket_path);
+        if let Some(socket) = socket {
+            let served = ipc::serve(
+                &socket,
+                {
+                    let sender = sender.clone();
+                    move |request, reply| sender.send(Message::Settings(request, reply)).is_ok()
+                },
+                {
+                    let sender = sender.clone();
+                    move || {
+                        let _ = sender.send(Message::SettingsGone);
+                    }
+                },
+            );
+            if let Err(err) = served {
+                error!("Failed to listen on {}: {err}", socket.display());
+            }
         }
 
         let (commands, command_receiver) = mpsc::channel();
@@ -1419,10 +1653,17 @@ impl State {
                 self.pinnacle.shell.files = files;
                 self.invalidate_launcher();
             }
-            Message::Thumbnail(path, thumbnail) => {
-                self.pinnacle.shell.wallpapers.push((path, thumbnail));
-                self.pinnacle.shell.wallpapers.sort_by(|a, b| a.0.cmp(&b.0));
+            Message::Settings(request, reply) => {
+                let answer = if request == Request::Snapshot {
+                    serde_json::to_string(&self.settings_snapshot()).unwrap_or_default()
+                } else {
+                    self.on_settings_request(request);
+                    "null".to_owned()
+                };
+                let _ = reply.send(answer);
             }
+            Message::SettingsGone => self.send_command(Command::Watch(Watching::Tiles)),
+            Message::ScreenshotSaved(result) => self.on_screenshot_saved(result),
             Message::Palette(palette) => {
                 self.pinnacle.shell.palette = Some(palette);
                 for output in self.pinnacle.outputs.clone() {
@@ -1456,6 +1697,8 @@ impl State {
                         Some(vec![Rectangle::from_size((size.w, size.h).into())]),
                     );
                     wallpaper.buffer = Some((buffer, size));
+                    wallpaper.blurred = None;
+                    state.full_redraws = FULL_REDRAWS;
                     Some(())
                 });
 
@@ -1469,8 +1712,11 @@ impl State {
     /// Starts loading `output`'s wallpaper if it doesn't have one for its current size.
     fn request_wallpaper(&mut self, output: &Output, logical_size: Size<i32, Logical>) {
         let shell = &mut self.pinnacle.shell;
-        let (Some(path), Some(sender)) = (shell.settings.wallpaper.clone(), shell.sender.clone())
-        else {
+        let Some(path) = shell.settings.wallpaper.clone() else {
+            shell.palette.get_or_insert_with(Palettes::fallback);
+            return;
+        };
+        let Some(sender) = shell.sender.clone() else {
             return;
         };
 
@@ -1488,6 +1734,7 @@ impl State {
             let wallpaper = state.wallpaper.get_or_insert(OutputWallpaper {
                 requested: Default::default(),
                 buffer: None,
+                blurred: None,
             });
             std::mem::replace(&mut wallpaper.requested, requested) == requested
         });
@@ -1519,12 +1766,19 @@ impl State {
                             image,
                         });
                     }
-                    Err(err) => warn!("Failed to load {}: {err}", path.display()),
+                    Err(err) => {
+                        warn!("Failed to load {}: {err}", path.display());
+                        // The shell waits for a palette, so it has to get one.
+                        if with_palette {
+                            let _ = sender.send(Message::Palette(Palettes::fallback()));
+                        }
+                    }
                 }
             });
 
         if let Err(err) = spawned {
             error!("Failed to start loading the wallpaper: {err}");
+            shell.palette.get_or_insert_with(Palettes::fallback);
         }
     }
 
@@ -1719,7 +1973,8 @@ impl State {
             return;
         };
 
-        output.with_state(|state| {
+        output.with_state_mut(|state| {
+            state.screenshot = None;
             if let Some(panel) = state.panel.as_ref() {
                 panel.ui.set_open(false);
                 panel.ui.set_page(Page::Tiles);
@@ -1729,9 +1984,6 @@ impl State {
             }
             if let Some(launcher) = state.launcher.as_ref() {
                 launcher.ui.set_open(false);
-            }
-            if let Some(settings) = state.settings.as_ref() {
-                settings.ui.set_open(false);
             }
         });
 
@@ -1844,106 +2096,49 @@ impl State {
         self.open_settings(page);
     }
 
+    /// The settings app's window, if it's running.
+    fn settings_window(&self) -> Option<WindowElement> {
+        self.pinnacle
+            .windows
+            .iter()
+            .find(|window| window.class().as_deref() == Some(SETTINGS_APP_ID))
+            .cloned()
+    }
+
+    /// Brings the settings app's window up, if it's running.
+    fn focus_settings(&mut self) -> bool {
+        let Some(window) = self.settings_window() else {
+            return false;
+        };
+
+        // There's nothing to do when it's already showing, and `switch_to` knows.
+        let workspace = window.with_state(|state| state.workspaces.first().cloned());
+        if let Some(workspace) = workspace {
+            crate::api::workspace::switch_to(self, &workspace);
+        }
+        crate::api::window::set_focused(self, &window, true);
+        true
+    }
+
     /// Opens the settings app on `page`.
     fn open_settings(&mut self, page: SettingsPage) {
-        let Some(output) = self.pinnacle.focused_output().cloned() else {
-            return;
-        };
-
         self.close_panels();
 
-        let Some(geo) = self.pinnacle.space.output_geometry(&output) else {
-            return;
-        };
-        let scale = output.current_scale().fractional_scale();
-        let size = settings_app::size(geo.size);
-
-        let reopened = output.with_state(|state| {
-            state.settings.as_ref().is_some_and(|settings| {
-                let fits = settings.window.matches(size, scale);
-                if fits {
-                    settings.ui.set_open(true);
-                }
-                fits
-            })
-        });
-
-        if !reopened {
-            match OutputSettings::new(size, scale) {
-                Ok(settings) => output.with_state_mut(|state| state.settings = Some(settings)),
-                Err(err) => {
-                    error!("Failed to open settings: {err}");
-                    return;
-                }
-            }
-        }
-
-        self.pinnacle.shell.open_panel = Some((output.downgrade(), ShellSurface::Settings));
-        self.open_settings_page(&output, page);
-        self.schedule_render(&output);
-    }
-
-    fn open_settings_page(&mut self, output: &Output, page: SettingsPage) {
-        output.with_state(|state| {
-            if let Some(settings) = state.settings.as_ref() {
-                settings.ui.set_page(page);
-            }
-        });
-        self.send_command(Command::Watch(match page {
-            SettingsPage::Network => Watching::Wifi,
-            SettingsPage::Devices => Watching::Bluetooth,
-            SettingsPage::Sound => Watching::Sound,
-            _ => Watching::Tiles,
-        }));
-
-        if page == SettingsPage::Style {
-            self.request_wallpapers();
-        }
-    }
-
-    /// Starts making small versions of the wallpapers to choose from.
-    fn request_wallpapers(&mut self) {
-        let shell = &mut self.pinnacle.shell;
-        let Some(sender) = shell.sender.clone() else {
-            return;
-        };
-        if std::mem::replace(&mut shell.wallpapers_requested, true) {
+        if self.focus_settings() {
+            self.pinnacle.shell.settings_page = Some(page);
             return;
         }
 
-        let mut dirs = shell
-            .settings
-            .wallpaper
-            .iter()
-            .filter_map(|path| Some(path.parent()?.to_owned()))
-            .collect::<Vec<_>>();
-        if let Some(home) = std::env::var_os("HOME") {
-            dirs.push(PathBuf::from(home).join("Pictures/Wallpapers"));
-        }
-        dirs.sort();
-        dirs.dedup();
+        // It's next to us, which also works when it's not on the PATH.
+        let program = std::env::current_exe()
+            .ok()
+            .and_then(|path| Some(path.parent()?.join(SETTINGS_PROGRAM)))
+            .filter(|path| path.exists())
+            .unwrap_or_else(|| SETTINGS_PROGRAM.into());
 
-        let spawned = thread::Builder::new()
-            .name("shell-thumbnails".into())
-            .spawn(move || {
-                let paths = dirs
-                    .iter()
-                    .filter_map(|dir| fs::read_dir(dir).ok())
-                    .flatten()
-                    .flatten()
-                    .map(|entry| entry.path())
-                    .filter(|path| wallpaper::is_image(path));
-
-                for path in paths {
-                    if let Some(thumbnail) = wallpaper::thumbnail(&path) {
-                        let _ = sender.send(Message::Thumbnail(path, thumbnail));
-                    }
-                }
-            });
-
-        if let Err(err) = spawned {
-            error!("Failed to start finding wallpapers: {err}");
-        }
+        let mut command = std::process::Command::new(program);
+        command.args(["--page", page.name()]);
+        self.spawn(command);
     }
 
     /// Uses another wallpaper, and the colors that come with it.
@@ -1989,45 +2184,146 @@ impl State {
         self.pinnacle
             .output_management_manager_state
             .update::<State>();
-
-        // It was laid out for the old scale, so it has to start over at the new one.
-        let page = output.with_state_mut(|state| {
-            let page = state
-                .settings
-                .as_ref()
-                .map(|settings| settings.ui.get_page());
-            state.settings = None;
-            page
-        });
-        if let Some(page) = page {
-            self.open_settings(page);
-        }
     }
 
-    fn on_settings_action(&mut self, output: &Output, action: SettingsAction) {
-        match action {
-            SettingsAction::Close => self.close_panels(),
-            SettingsAction::Query => (),
-            SettingsAction::OpenPage(page) => self.open_settings_page(output, page),
-            SettingsAction::ToggleWifi => {
+    fn on_settings_request(&mut self, request: Request) {
+        match request {
+            Request::Snapshot => (),
+            Request::Showing(page) => self.send_command(Command::Watch(match page {
+                SettingsPage::Network => Watching::Wifi,
+                SettingsPage::Devices => Watching::Bluetooth,
+                SettingsPage::Sound => Watching::Sound,
+                _ => Watching::Tiles,
+            })),
+            Request::ToggleWifi => {
                 let enabled = self.pinnacle.shell.system.wifi_enabled;
                 self.send_command(Command::SetWifi(!enabled));
             }
-            SettingsAction::ToggleBluetooth => {
+            Request::ClickNetwork { ssid } => self.send_command(Command::ClickNetwork { ssid }),
+            Request::ConnectWifi { ssid, password } => {
+                self.send_command(Command::ConnectWifi { ssid, password });
+            }
+            Request::ForgetWifi { ssid } => self.send_command(Command::ForgetWifi { ssid }),
+            Request::ToggleBluetooth => {
                 let enabled = self.pinnacle.shell.system.bluetooth_enabled;
                 self.send_command(Command::SetBluetooth(!enabled));
             }
-            SettingsAction::ToggleDark => self.on_tile_clicked(TileKind::Dark),
-            SettingsAction::ToggleNightLight => self.on_tile_clicked(TileKind::NightLight),
-            SettingsAction::ToggleMute => self.on_tile_clicked(TileKind::Audio),
-            SettingsAction::ToggleMicrophone => self.on_tile_clicked(TileKind::Microphone),
-            SettingsAction::ToggleDoNotDisturb => self.toggle_do_not_disturb(),
-            SettingsAction::TogglePowerSaver => self.on_tile_clicked(TileKind::PowerSaver),
-            SettingsAction::ToggleStayAwake => self.on_tile_clicked(TileKind::StayAwake),
-            SettingsAction::ClearNotifications => self.clear_notifications(),
-            SettingsAction::SetScale(name, scale) => self.set_output_scale(&name, scale),
-            SettingsAction::SetWallpaper(path) => self.set_wallpaper(path),
-            SettingsAction::Run(command) => self.send_command(command),
+            Request::ClickBluetooth { id } => self.send_command(Command::ClickBluetooth { id }),
+            Request::SetBrightness(percent) => self.send_command(Command::SetBrightness(percent)),
+            Request::ToggleDark => self.on_tile_clicked(TileKind::Dark),
+            Request::ToggleNightLight => self.on_tile_clicked(TileKind::NightLight),
+            Request::SetScale { output, scale } => self.set_output_scale(&output, scale),
+            Request::SetWallpaper(path) => self.set_wallpaper(path),
+            Request::SetVolume(percent) => self.send_command(Command::SetVolume(percent)),
+            Request::ToggleMute => self.on_tile_clicked(TileKind::Audio),
+            Request::SetSink(name) => self.send_command(Command::SetSink(name)),
+            Request::ToggleMicrophone => self.on_tile_clicked(TileKind::Microphone),
+            Request::ToggleDoNotDisturb => self.toggle_do_not_disturb(),
+            Request::ClearNotifications => self.clear_notifications(),
+            Request::TogglePowerSaver => self.on_tile_clicked(TileKind::PowerSaver),
+            Request::ToggleStayAwake => self.on_tile_clicked(TileKind::StayAwake),
+            Request::ToggleRoundedCorners => {
+                let shell = &mut self.pinnacle.shell;
+                shell.settings.rounded_corners = !shell.settings.rounded_corners;
+                let on = shell.settings.rounded_corners;
+                Settings::write_switch(&self.pinnacle.config.config_dir, "rounded_corners", on);
+            }
+            Request::ToggleBlur => {
+                let shell = &mut self.pinnacle.shell;
+                shell.settings.blur = !shell.settings.blur;
+                let on = shell.settings.blur;
+                Settings::write_switch(&self.pinnacle.config.config_dir, "blur", on);
+            }
+        }
+    }
+
+    /// What the settings app shows.
+    fn settings_snapshot(&mut self) -> Snapshot {
+        let night_light_available = matches!(self.backend, Backend::Udev(_));
+        let outputs = self
+            .pinnacle
+            .outputs
+            .iter()
+            .map(|output| aether_common::Output {
+                name: output.name(),
+                resolution: output
+                    .current_mode()
+                    .map(|mode| format!("{} × {}", mode.size.w, mode.size.h))
+                    .unwrap_or_default(),
+                scale: output.current_scale().fractional_scale(),
+            })
+            .collect();
+
+        let shell = &mut self.pinnacle.shell;
+        let page = shell.settings_page.take();
+        let system = &shell.system;
+        let status = &shell.status;
+        let colors = shell
+            .palette
+            .as_ref()
+            .unwrap_or(&Palettes::fallback())
+            .get(shell.dark)
+            .colors();
+
+        Snapshot {
+            page,
+            colors,
+            error: system.error.clone(),
+            wifi_enabled: system.wifi_enabled,
+            networks: system
+                .networks
+                .iter()
+                .map(|network| aether_common::Network {
+                    ssid: network.ssid.clone(),
+                    bars: status::wifi_bars(network.strength),
+                    secured: network.secured,
+                    active: network.active,
+                    known: network.known,
+                    connecting: network.connecting,
+                })
+                .collect(),
+            bluetooth_enabled: system.bluetooth_enabled,
+            bluetooth_devices: system
+                .bluetooth_devices
+                .iter()
+                .map(|device| aether_common::BluetoothDevice {
+                    id: device.id.clone(),
+                    name: device.name.clone(),
+                    icon: device.icon.clone(),
+                    connected: device.connected,
+                    paired: device.paired,
+                    connecting: device.connecting,
+                    battery: device.battery,
+                })
+                .collect(),
+            brightness: system.brightness,
+            dark: shell.dark,
+            night_light: shell.night_light,
+            night_light_available,
+            outputs,
+            wallpaper: shell.settings.wallpaper.clone(),
+            volume: status.sound.map(|sound| sound.percent),
+            muted: status.sound.is_some_and(|sound| sound.muted),
+            sinks: system
+                .sinks
+                .iter()
+                .map(|sink| aether_common::Sink {
+                    name: sink.name.clone(),
+                    description: sink.description.clone(),
+                    active: sink.active,
+                })
+                .collect(),
+            mic_muted: system.mic_muted,
+            do_not_disturb: shell.do_not_disturb,
+            notification_count: shell.notifications.len(),
+            battery: status.battery.map(|battery| aether_common::Battery {
+                percent: battery.percent,
+                charging: battery.charging,
+            }),
+            power_saver: system.power_saver,
+            stay_awake: shell.stay_awake,
+            rounded_corners: shell.settings.rounded_corners,
+            blur: shell.settings.blur,
         }
     }
 
@@ -2097,6 +2393,11 @@ impl State {
     }
 
     fn toggle_launcher(&mut self, output: &Output) {
+        // Like the rest of the shell, it waits for its colors.
+        if self.pinnacle.shell.palette.is_none() {
+            return;
+        }
+
         let is_open = self.is_panel_open(output, ShellSurface::Launcher);
 
         self.close_panels();
@@ -2138,7 +2439,149 @@ impl State {
         self.schedule_render(output);
     }
 
+    /// What's on `output`, without the pointer.
+    fn capture_output(&mut self, output: &Output) -> anyhow::Result<RgbaImage> {
+        let geo = self
+            .pinnacle
+            .space
+            .output_geometry(output)
+            .ok_or_else(|| anyhow::anyhow!("the output isn't mapped"))?;
+        let scale = output.current_scale().fractional_scale();
+        let size = geo.size.to_f64().to_physical(scale).to_i32_round::<i32>();
+
+        let pinnacle = &self.pinnacle;
+        self.backend
+            .with_renderer(|renderer| {
+                let elements = crate::render::output_render_elements(
+                    output,
+                    renderer,
+                    &pinnacle.space,
+                    &pinnacle.z_index_stack,
+                );
+                let (mut texture, sync) = render_to_texture(
+                    renderer,
+                    elements.iter().rev(),
+                    size,
+                    Scale::from(scale),
+                    Transform::Normal,
+                    Fourcc::Abgr8888,
+                )?;
+                renderer.wait(&sync)?;
+
+                let framebuffer = renderer.bind(&mut texture)?;
+                let region = Rectangle::from_size((size.w, size.h).into());
+                let mapping = renderer.copy_framebuffer(&framebuffer, region, Fourcc::Abgr8888)?;
+                let mut pixels = renderer.map_texture(&mapping)?.to_vec();
+
+                // Whatever was drawn last, nothing is see-through on a screen.
+                for pixel in pixels.chunks_exact_mut(4) {
+                    pixel[3] = 255;
+                }
+
+                RgbaImage::from_raw(size.w as u32, size.h as u32, pixels)
+                    .ok_or_else(|| anyhow::anyhow!("the capture has the wrong size"))
+            })
+            .ok_or_else(|| anyhow::anyhow!("there's no renderer"))?
+    }
+
+    /// Freezes `output` for choosing what to keep of it.
+    fn start_screenshot(&mut self, output: &Output) {
+        if self.is_panel_open(output, ShellSurface::Screenshot) {
+            return;
+        }
+
+        let image = match self.capture_output(output) {
+            Ok(image) => image,
+            Err(err) => {
+                error!("Failed to capture the screen: {err:#}");
+                return;
+            }
+        };
+
+        self.close_panels();
+
+        let Some(geo) = self.pinnacle.space.output_geometry(output) else {
+            return;
+        };
+        let scale = output.current_scale().fractional_scale();
+
+        match OutputScreenshot::new(image, geo.size, scale) {
+            Ok(screenshot) => output.with_state_mut(|state| state.screenshot = Some(screenshot)),
+            Err(err) => {
+                error!("Failed to open the screenshot overlay: {err}");
+                return;
+            }
+        }
+
+        self.pinnacle.shell.open_panel = Some((output.downgrade(), ShellSurface::Screenshot));
+        self.schedule_render(output);
+    }
+
+    fn on_screenshot_action(&mut self, output: &Output, action: ScreenshotAction) {
+        let area = match action {
+            ScreenshotAction::Cancel => {
+                self.close_panels();
+                return;
+            }
+            ScreenshotAction::Take(area) => area,
+        };
+
+        let image =
+            output.with_state(|state| state.screenshot.as_ref().map(OutputScreenshot::image));
+        self.close_panels();
+
+        let (Some(image), Some(sender)) = (image, self.pinnacle.shell.sender.clone()) else {
+            return;
+        };
+        let scale = output.current_scale().fractional_scale();
+        let area = capture::pixel_area(area, scale, image.width(), image.height());
+
+        let spawned = thread::Builder::new()
+            .name("shell-screenshot".into())
+            .spawn(move || {
+                let saved = capture::save(&image, area).map_err(|err| format!("{err:#}"));
+                let _ = sender.send(Message::ScreenshotSaved(saved));
+            });
+        if let Err(err) = spawned {
+            error!("Failed to start saving a screenshot: {err}");
+        }
+    }
+
+    /// Puts a saved screenshot on the clipboard, and says what happened.
+    fn on_screenshot_saved(&mut self, result: Result<PathBuf, String>) {
+        let (summary, body) = match result {
+            Ok(path) => {
+                let mut command = std::process::Command::new("sh");
+                command.args(["-c", "exec wl-copy --type image/png < \"$0\""]);
+                command.arg(&path);
+                self.spawn(command);
+
+                ("Screenshot saved".to_owned(), path.display().to_string())
+            }
+            Err(err) => {
+                error!("Failed to save a screenshot: {err}");
+                ("Couldn't save the screenshot".to_owned(), err)
+            }
+        };
+
+        self.on_notification(notifications::Event::Received(Notification {
+            id: SCREENSHOT_NOTIFICATION,
+            app: "Screenshot".to_owned(),
+            summary,
+            body,
+            has_default_action: false,
+            critical: false,
+            timeout: Some(SCREENSHOT_NOTIFICATION_TIME),
+            received: chrono::Local::now(),
+        }));
+    }
+
     fn launch_app(&mut self, id: &str) {
+        // There's only ever one of these.
+        if id == SETTINGS_APP_ID && self.focus_settings() {
+            return;
+        }
+
         let shell = &mut self.pinnacle.shell;
         let Some(app) = shell.apps.iter().find(|app| app.id == id) else {
             return;
@@ -2167,7 +2610,7 @@ impl State {
                 self.close_panels();
                 self.launch_app(&id);
             }
-            Target::Settings(topic) => self.open_settings(PAGES[topic]),
+            Target::Settings(page) => self.open_settings(page),
             Target::File(path) => {
                 self.close_panels();
                 let mut command = std::process::Command::new("xdg-open");
@@ -2229,6 +2672,15 @@ impl State {
     ///
     /// This is the same mod key as in the default config, which is Alt in a window,
     /// because the compositor around it wants Super for itself.
+    /// Asks for a screenshot if `raw_sym` is the key for that.
+    pub fn on_screenshot_shortcut(&mut self, raw_sym: u32) -> bool {
+        let is_print = raw_sym == keysyms::KEY_Print;
+        if is_print {
+            self.pinnacle.shell.screenshot_requested = true;
+        }
+        is_print
+    }
+
     pub fn on_launcher_shortcut(&mut self, raw_sym: u32, modifiers: &ModifiersState) -> bool {
         let is_mod = match self.backend {
             Backend::Winit(_) => modifiers.alt,
@@ -2241,18 +2693,6 @@ impl State {
             self.pinnacle.shell.launcher_requested = true;
         }
         is_shortcut
-    }
-
-    /// Keeps track of Super being tapped, which is what opens the launcher.
-    pub fn on_key_for_launcher(&mut self, raw_sym: u32, pressed: bool) {
-        let shell = &mut self.pinnacle.shell;
-        let is_super = matches!(raw_sym, keysyms::KEY_Super_L | keysyms::KEY_Super_R);
-
-        if pressed {
-            shell.super_tapping = is_super;
-        } else if is_super && std::mem::take(&mut shell.super_tapping) {
-            shell.launcher_requested = true;
-        }
     }
 
     fn save_tiles(&self) {
@@ -2346,7 +2786,26 @@ impl State {
             self.toggle_launcher(&output);
         }
 
+        if std::mem::take(&mut self.pinnacle.shell.screenshot_requested)
+            && self.pinnacle.lock_state.is_unlocked()
+            && let Some(output) = self.pinnacle.focused_output().cloned()
+        {
+            self.start_screenshot(&output);
+        }
+
         for output in self.pinnacle.outputs.clone() {
+            let actions = output.with_state(|state| {
+                state
+                    .screenshot
+                    .as_ref()
+                    .map(OutputScreenshot::take_actions)
+                    .unwrap_or_default()
+            });
+
+            for action in actions {
+                self.on_screenshot_action(&output, action);
+            }
+
             let actions = output.with_state(|state| {
                 state
                     .bar
@@ -2392,18 +2851,6 @@ impl State {
 
             for action in actions {
                 self.on_launcher_action(&output, action);
-            }
-
-            let actions = output.with_state(|state| {
-                state
-                    .settings
-                    .as_ref()
-                    .map(OutputSettings::take_actions)
-                    .unwrap_or_default()
-            });
-
-            for action in actions {
-                self.on_settings_action(&output, action);
             }
 
             let actions = output.with_state(|state| {
@@ -2495,30 +2942,47 @@ impl State {
         let focused_output = self.pinnacle.focused_output().cloned();
 
         let supports_night_light = matches!(self.backend, Backend::Udev(_));
-        let output_details = self
-            .pinnacle
-            .outputs
-            .iter()
-            .map(|output| OutputDetails {
-                name: output.name(),
-                resolution: output
-                    .current_mode()
-                    .map(|mode| format!("{} × {}", mode.size.w, mode.size.h))
-                    .unwrap_or_default(),
-                scale: output.current_scale().fractional_scale(),
-            })
-            .collect::<Vec<_>>();
         let palette = self
             .pinnacle
             .shell
             .palette
             .map(|palettes| *palettes.get(self.pinnacle.shell.dark));
+        let blur = self.pinnacle.shell.settings.blur;
+
+        self.pinnacle.shell.export_theme();
+
+        let style = WindowStyle {
+            radius: if self.pinnacle.shell.settings.rounded_corners {
+                CORNER_RADIUS
+            } else {
+                0
+            },
+            blur,
+        };
+        for output in self.pinnacle.outputs.clone() {
+            let redraw = output.with_state_mut(|state| {
+                if state.window_style.radius != style.radius || state.window_style.blur != blur {
+                    state.window_style = style;
+                    state.full_redraws = FULL_REDRAWS;
+                }
+                state.full_redraws > 0
+            });
+            if redraw {
+                self.schedule_render(&output);
+            }
+        }
 
         for output in self.pinnacle.outputs.clone() {
             let Some(geo) = self.pinnacle.space.output_geometry(&output) else {
                 continue;
             };
             let scale = output.current_scale().fractional_scale();
+
+            // Nothing of the shell shows until it knows what colors to have.
+            self.request_wallpaper(&output, geo.size);
+            if self.pinnacle.shell.palette.is_none() {
+                continue;
+            }
 
             let (had_bar, up_to_date) = output.with_state(|state| {
                 let bar = state.bar.as_ref();
@@ -2544,8 +3008,6 @@ impl State {
                 }
             }
 
-            self.request_wallpaper(&output, geo.size);
-
             let content = self.pinnacle.bar_content(&output);
             let shell = &self.pinnacle.shell;
             let is_focused = focused_output.as_ref() == Some(&output);
@@ -2557,7 +3019,7 @@ impl State {
                 let bar = state.bar.as_mut().expect("the bar was just created");
                 bar.update(content);
                 if let Some(palette) = &palette {
-                    apply_palette(Theme::get(&bar.ui), palette);
+                    apply_palette(Theme::get(&bar.ui), palette, blur);
                 }
                 let mut drawn = bar.window.draw();
 
@@ -2590,7 +3052,7 @@ impl State {
                 if let Some(toasts) = state.toasts.as_mut() {
                     toasts.update(shell);
                     if let Some(palette) = &palette {
-                        apply_palette(Theme::get(&toasts.ui), palette);
+                        apply_palette(Theme::get(&toasts.ui), palette, blur);
                     }
                     drawn |= toasts.window.draw();
                 }
@@ -2603,39 +3065,29 @@ impl State {
                     state.launcher = None;
                     drawn = true;
                 }
-                if state
-                    .settings
-                    .as_ref()
-                    .is_some_and(OutputSettings::is_closed)
-                {
-                    state.settings = None;
-                    drawn = true;
-                }
 
-                let panel_visible = state.panel.is_some()
-                    || state.clock.is_some()
-                    || state.launcher.is_some()
-                    || state.settings.is_some();
+                let panel_visible =
+                    state.panel.is_some() || state.clock.is_some() || state.launcher.is_some();
+
+                if let Some(screenshot) = state.screenshot.as_mut() {
+                    if let Some(palette) = &palette {
+                        apply_palette(Theme::get(&screenshot.ui), palette, blur);
+                    }
+                    drawn |= screenshot.window.draw();
+                }
 
                 if let Some(launcher) = state.launcher.as_mut() {
                     launcher.update(shell);
                     if let Some(palette) = &palette {
-                        apply_palette(Theme::get(&launcher.ui), palette);
+                        apply_palette(Theme::get(&launcher.ui), palette, blur);
                     }
                     drawn |= launcher.window.draw();
-                }
-                if let Some(settings) = state.settings.as_mut() {
-                    settings.update(shell, &output_details, supports_night_light);
-                    if let Some(palette) = &palette {
-                        apply_palette(Theme::get(&settings.ui), palette);
-                    }
-                    drawn |= settings.window.draw();
                 }
 
                 if let Some(clock) = state.clock.as_mut() {
                     clock.update(shell);
                     if let Some(palette) = &palette {
-                        apply_palette(Theme::get(&clock.ui), palette);
+                        apply_palette(Theme::get(&clock.ui), palette, blur);
                     }
                     drawn |= clock.window.draw();
                 }
@@ -2643,7 +3095,7 @@ impl State {
                 if let Some(panel) = state.panel.as_mut() {
                     panel.update(shell, supports_night_light);
                     if let Some(palette) = &palette {
-                        apply_palette(Theme::get(&panel.ui), palette);
+                        apply_palette(Theme::get(&panel.ui), palette, blur);
                     }
                     drawn |= panel.window.draw();
                 }

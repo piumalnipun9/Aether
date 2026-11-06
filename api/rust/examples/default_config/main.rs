@@ -35,7 +35,7 @@ async fn config() {
         Backend::Window => Mod::ALT,
     };
 
-    let terminal = "alacritty";
+    let terminal = "foot";
 
     //------------------------
     // Mousebinds            |
@@ -430,7 +430,6 @@ async fn config() {
     })));
 
 
-    Command::new(terminal).once().spawn();
 }
 
 pinnacle_api::main!(config);

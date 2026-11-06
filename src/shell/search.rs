@@ -8,6 +8,8 @@ use std::{
     path::{Path, PathBuf},
 };
 
+pub use aether_common::{match_score, matching_topics};
+
 use super::apps::App;
 
 /// The most files that are looked at.
@@ -18,24 +20,6 @@ const MAX_FILE_DEPTH: usize = 5;
 
 /// Folders in the way of finding things.
 const SKIPPED_FOLDERS: [&str; 4] = ["node_modules", "target", "__pycache__", "venv"];
-
-/// How well `text` matches `query`, which is expected in lowercase. Higher is better.
-pub fn match_score(text: &str, query: &str) -> Option<u32> {
-    let text = text.to_lowercase();
-
-    if text == query {
-        Some(400)
-    } else if text.starts_with(query) {
-        Some(300)
-    } else if text
-        .split(|c: char| !c.is_alphanumeric())
-        .any(|word| word.starts_with(query))
-    {
-        Some(200)
-    } else {
-        text.contains(query).then_some(100)
-    }
-}
 
 /// How well an app matches `query`, for which its name counts the most.
 pub fn app_score(app: &App, query: &str) -> Option<u32> {
@@ -136,108 +120,35 @@ pub fn next_selection(
     next.clamp(0, last) as usize
 }
 
-/// A topic in the settings app.
-pub struct Topic {
-    /// Its place in the settings app's list.
-    pub page: usize,
-    pub title: &'static str,
-    pub subtitle: &'static str,
-    keywords: &'static [&'static str],
-}
+/// Like [`next_selection`] for when `suggestions` come before the apps, in a row of their own.
+pub fn next_selection_with_suggestions(
+    current: usize,
+    columns: i32,
+    rows: i32,
+    suggestions: usize,
+    apps: usize,
+    total: usize,
+    width: usize,
+) -> usize {
+    if current < suggestions {
+        if rows > 0 {
+            // Straight down into the apps, if there are any.
+            return if apps > 0 {
+                suggestions + current.min(apps.min(width) - 1)
+            } else {
+                current
+            };
+        }
+        let next = current as i32 + columns;
+        return next.clamp(0, suggestions as i32 - 1) as usize;
+    }
 
-pub const TOPICS: [Topic; 8] = [
-    Topic {
-        page: 0,
-        title: "Network & internet",
-        subtitle: "Wi-Fi, saved networks",
-        keywords: &["wifi", "wireless", "internet", "password", "connection"],
-    },
-    Topic {
-        page: 1,
-        title: "Connected devices",
-        subtitle: "Bluetooth, pairing",
-        keywords: &[
-            "bluetooth",
-            "headphones",
-            "earbuds",
-            "mouse",
-            "keyboard",
-            "pair",
-        ],
-    },
-    Topic {
-        page: 2,
-        title: "Display",
-        subtitle: "Brightness, Dark theme, scale",
-        keywords: &[
-            "brightness",
-            "dark",
-            "light",
-            "night",
-            "scale",
-            "monitor",
-            "screen",
-        ],
-    },
-    Topic {
-        page: 3,
-        title: "Wallpaper & style",
-        subtitle: "Wallpaper, colors",
-        keywords: &["background", "theme", "colors", "picture"],
-    },
-    Topic {
-        page: 4,
-        title: "Sound",
-        subtitle: "Volume, output, microphone",
-        keywords: &["audio", "volume", "speaker", "microphone", "mute"],
-    },
-    Topic {
-        page: 5,
-        title: "Notifications",
-        subtitle: "Do Not Disturb, clear all",
-        keywords: &["alerts", "dnd", "disturb"],
-    },
-    Topic {
-        page: 6,
-        title: "Battery",
-        subtitle: "Charge, Battery Saver",
-        keywords: &["power", "saver", "charging", "stay", "awake", "idle"],
-    },
-    Topic {
-        page: 7,
-        title: "About",
-        subtitle: "Device, software, hardware",
-        keywords: &[
-            "system",
-            "version",
-            "kernel",
-            "memory",
-            "processor",
-            "hostname",
-        ],
-    },
-];
+    let in_rest = current - suggestions;
+    if rows < 0 && suggestions > 0 && in_rest < apps && in_rest < width {
+        return in_rest.min(suggestions - 1);
+    }
 
-/// The settings topics for `query`, which is expected in lowercase, best first.
-/// All of them match nothing being asked.
-pub fn matching_topics(query: &str) -> Vec<&'static Topic> {
-    let mut topics = TOPICS
-        .iter()
-        .filter_map(|topic| {
-            let title = match_score(topic.title, query);
-            let subtitle = match_score(topic.subtitle, query).map(|score| score / 2);
-            let keyword = topic
-                .keywords
-                .iter()
-                .filter_map(|keyword| match_score(keyword, query))
-                .max()
-                .map(|score| score / 2);
-            Some((title.or(subtitle).or(keyword)?, topic))
-        })
-        .collect::<Vec<_>>();
-
-    topics.sort_by_key(|(score, _)| std::cmp::Reverse(*score));
-    topics.into_iter().map(|(_, topic)| topic).collect()
+    suggestions + next_selection(in_rest, columns, rows, apps, total - suggestions, width)
 }
 
 /// A recursive descent parser for arithmetic.
@@ -342,6 +253,8 @@ pub fn calculate(expression: &str) -> Option<String> {
 
 #[cfg(test)]
 mod tests {
+    use aether_common::TOPICS;
+
     use super::*;
 
     #[test]
@@ -377,6 +290,32 @@ mod tests {
         assert_eq!(matching_topics("wall")[0].title, "Wallpaper & style");
         assert_eq!(matching_topics("volume")[0].title, "Sound");
         assert!(matching_topics("qqq").is_empty());
+    }
+
+    #[test]
+    fn moving_between_suggestions_and_apps() {
+        // 3 suggestions over 7 apps in rows of 3, then 2 results.
+        let go = |current, columns, rows| {
+            next_selection_with_suggestions(current, columns, rows, 3, 7, 12, 3)
+        };
+
+        // Along the suggestions, stopping at the ends.
+        assert_eq!(go(0, 1, 0), 1);
+        assert_eq!(go(2, 1, 0), 2);
+        assert_eq!(go(0, -1, 0), 0);
+        assert_eq!(go(0, 0, -1), 0);
+        // Down to the app below, and back.
+        assert_eq!(go(1, 0, 1), 4);
+        assert_eq!(go(4, 0, -1), 1);
+        // On through the apps and the results.
+        assert_eq!(go(3, 0, 1), 6);
+        assert_eq!(go(9, 0, 1), 10);
+        // No suggestions behaves like before.
+        assert_eq!(next_selection_with_suggestions(4, 0, -1, 0, 7, 9, 3), 1);
+        // Fewer suggestions than a row of apps.
+        assert_eq!(next_selection_with_suggestions(4, 0, -1, 2, 7, 9, 3), 1);
+        // Fewer apps than suggestions.
+        assert_eq!(next_selection_with_suggestions(2, 0, 1, 3, 2, 5, 3), 4);
     }
 
     #[test]

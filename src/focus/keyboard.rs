@@ -107,8 +107,8 @@ impl KeyboardTarget<State> for KeyboardFocusTarget {
                         if let Some(launcher) = state.launcher.as_ref() {
                             launcher.key(&key, pressed);
                         }
-                        if let Some(settings) = state.settings.as_ref() {
-                            settings.key(&key, pressed);
+                        if let Some(screenshot) = state.screenshot.as_ref() {
+                            screenshot.key(&key, pressed);
                         }
                     });
                 }

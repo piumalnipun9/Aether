@@ -49,7 +49,7 @@ const SECTION_HEIGHT: f32 = 28.0;
 pub enum Target {
     App(String),
     /// A topic in the settings app.
-    Settings(usize),
+    Settings(aether_common::Page),
     File(PathBuf),
     Web(String),
     /// It's only there to be read.
@@ -292,17 +292,8 @@ impl OutputLauncher {
                 .collect()
         };
 
-        let items = apps
-            .iter()
-            .enumerate()
-            .map(|(index, app)| {
-                targets.push(Target::App(app.id.clone()));
-                self.app_item(app, selected == Some(index))
-            })
-            .collect();
-        update_model(&self.apps, items);
-
-        let suggestions = if query.is_empty() {
+        // The suggestions come first, as they're what's on top.
+        let suggested: Vec<&App> = if query.is_empty() {
             let mut used = shell
                 .apps
                 .iter()
@@ -311,12 +302,26 @@ impl OutputLauncher {
             used.sort_by_key(|(count, _)| std::cmp::Reverse(*count));
             used.into_iter()
                 .take(self.ui.get_columns().max(1) as usize)
-                .map(|(_, app)| self.app_item(app, false))
+                .map(|(_, app)| app)
                 .collect()
         } else {
             Vec::new()
         };
+
+        let item_at = |app: &App, targets: &mut Vec<Target>| {
+            let index = targets.len();
+            targets.push(Target::App(app.id.clone()));
+            self.app_item(app, selected == Some(index))
+        };
+
+        let suggestions = suggested
+            .iter()
+            .map(|app| item_at(app, &mut targets))
+            .collect();
         update_model(&self.suggestions, suggestions);
+
+        let items = apps.iter().map(|app| item_at(app, &mut targets)).collect();
+        update_model(&self.apps, items);
 
         let mut results = Vec::new();
         let mut add = |section: &mut Option<&str>,
@@ -405,11 +410,14 @@ impl OutputLauncher {
     fn scroll_to(&self, index: usize) {
         let columns = self.ui.get_columns().max(1) as usize;
         let apps = self.apps.row_count();
-        let suggestions = if self.suggestions.row_count() > 0 {
-            SUGGESTIONS_HEIGHT
-        } else {
-            0.0
-        };
+        let suggested = self.suggestions.row_count();
+        let suggestions = if suggested > 0 { SUGGESTIONS_HEIGHT } else { 0.0 };
+
+        if index < suggested {
+            self.ui.invoke_scroll_to(0.0, CELL_HEIGHT);
+            return;
+        }
+        let index = index - suggested;
 
         let (top, height) = if index < apps {
             let row = (index / columns) as f32;
@@ -436,10 +444,11 @@ impl OutputLauncher {
         }
 
         let next = self.selected.get().map_or(0, |current| {
-            search::next_selection(
+            search::next_selection_with_suggestions(
                 current,
                 columns,
                 rows,
+                self.suggestions.row_count(),
                 self.apps.row_count(),
                 count,
                 self.ui.get_columns().max(1) as usize,
@@ -460,7 +469,7 @@ impl OutputLauncher {
     pub fn result_target(&self, index: usize) -> Option<Target> {
         self.targets
             .borrow()
-            .get(self.apps.row_count() + index)
+            .get(self.suggestions.row_count() + self.apps.row_count() + index)
             .cloned()
     }
 }

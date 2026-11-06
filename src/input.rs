@@ -509,13 +509,9 @@ impl State {
                     return FilterResult::Intercept(KeyAction::SwitchVt(vt as i32));
                 }
 
-                state.on_key_for_launcher(
-                    keysym.modified_sym().raw(),
-                    press_state == KeyState::Pressed,
-                );
-
                 if press_state == KeyState::Pressed
-                    && state.on_launcher_shortcut(keysym.modified_sym().raw(), modifiers)
+                    && (state.on_launcher_shortcut(keysym.modified_sym().raw(), modifiers)
+                        || state.on_screenshot_shortcut(keysym.modified_sym().raw()))
                 {
                     return FilterResult::Intercept(KeyAction::Suppress);
                 }

@@ -411,11 +411,7 @@ impl Pinnacle {
                     || state
                         .launcher
                         .as_ref()
-                        .is_some_and(|launcher| launcher.window.is_animating())
-                    || state
-                        .settings
-                        .as_ref()
-                        .is_some_and(|settings| settings.window.is_animating());
+                        .is_some_and(|launcher| launcher.window.is_animating());
             });
         }
 

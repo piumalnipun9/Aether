@@ -49,7 +49,9 @@ fn with_shell(output: &WeakOutput, surface: ShellSurface, func: impl FnOnce(&She
                 ShellSurface::Clock => state.clock.as_ref().map(|clock| &clock.window),
                 ShellSurface::Toasts => state.toasts.as_ref().map(|toasts| &toasts.window),
                 ShellSurface::Launcher => state.launcher.as_ref().map(|launcher| &launcher.window),
-                ShellSurface::Settings => state.settings.as_ref().map(|settings| &settings.window),
+                ShellSurface::Screenshot => {
+                    state.screenshot.as_ref().map(|screenshot| &screenshot.window)
+                }
             };
             window.map(func)
         });

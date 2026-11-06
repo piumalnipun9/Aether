@@ -1,0 +1,95 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+
+// Choosing what a screenshot shows. The frozen screen is drawn underneath this.
+
+import { Theme } from "theme.slint";
+
+export component ScreenshotOverlay inherits Window {
+    // Where the selection is. It's empty for a click.
+    callback finished(/* x */ length, /* y */ length, /* width */ length, /* height */ length);
+
+    property <brush> shade: #00000080;
+    property <bool> dragging: touch.pressed;
+    property <length> left: dragging ? min(touch.pressed-x, touch.mouse-x) : 0;
+    property <length> top: dragging ? min(touch.pressed-y, touch.mouse-y) : 0;
+    property <length> right: dragging ? max(touch.pressed-x, touch.mouse-x) : 0;
+    property <length> bottom: dragging ? max(touch.pressed-y, touch.mouse-y) : 0;
+
+    background: transparent;
+    default-font-family: "Inter";
+
+    // The shade everywhere but on the selection.
+    Rectangle {
+        x: 0;
+        y: 0;
+        width: root.width;
+        height: top;
+        background: shade;
+    }
+
+    Rectangle {
+        x: 0;
+        y: bottom;
+        width: root.width;
+        height: root.height - bottom;
+        background: shade;
+    }
+
+    Rectangle {
+        x: 0;
+        y: top;
+        width: left;
+        height: bottom - top;
+        background: shade;
+    }
+
+    Rectangle {
+        x: right;
+        y: top;
+        width: root.width - right;
+        height: bottom - top;
+        background: shade;
+    }
+
+    if dragging: Rectangle {
+        x: left - 2px;
+        y: top - 2px;
+        width: right - left + 4px;
+        height: bottom - top + 4px;
+        border-width: 2px;
+        border-color: Theme.accent;
+        background: transparent;
+    }
+
+    if !dragging: Rectangle {
+        x: (parent.width - self.width) / 2;
+        y: parent.height - self.height - 32px;
+        width: hint.preferred-width + 40px;
+        height: 44px;
+        border-radius: self.height / 2;
+        background: Theme.surface.with-alpha(0.92);
+
+        hint := Text {
+            text: "Drag to select  ·  Click for the whole screen  ·  Esc to cancel";
+            font-size: 13px;
+            font-weight: 500;
+            color: Theme.on-surface;
+            vertical-alignment: center;
+            horizontal-alignment: center;
+        }
+    }
+
+    touch := TouchArea {
+        mouse-cursor: crosshair;
+
+        pointer-event(event) => {
+            if event.kind == PointerEventKind.up && event.button == PointerEventButton.left {
+                root.finished(
+                    min(self.pressed-x, self.mouse-x),
+                    min(self.pressed-y, self.mouse-y),
+                    abs(self.mouse-x - self.pressed-x),
+                    abs(self.mouse-y - self.pressed-y));
+            }
+        }
+    }
+}

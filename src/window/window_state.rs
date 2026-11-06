@@ -410,6 +410,8 @@ pub struct WindowElementState {
     pub layout_size: Option<Size<i32, Logical>>,
     /// The compositor-drawn border.
     pub border: crate::render::border::Border,
+    /// What identifies the blurred wallpaper behind this window.
+    pub backdrop_id: smithay::backend::renderer::element::Id,
 }
 
 impl WindowElement {
@@ -681,6 +683,7 @@ impl WindowElementState {
             move_animation: None,
             layout_size: None,
             border: Default::default(),
+            backdrop_id: smithay::backend::renderer::element::Id::new(),
         }
     }
 
