@@ -4,7 +4,7 @@
 //!
 //! `aether/colors.json` has every Material role for both the dark and light theme, for
 //! anything that wants to read them, and `aether/colors.css` the same as GTK named colors.
-//! Apps with a theme format of their own get a file in it: GTK, foot, kitty and Qt.
+//! Apps with a theme format of their own get a file in it: GTK, foot, kitty, Qt, yazi, fastfetch and an icon theme.
 
 use std::{
     env, fs,
@@ -14,16 +14,42 @@ use std::{
 use material_colors::{color::Argb, hct::Hct, theme::ThemeBuilder};
 use serde_json::{Map, Value, json};
 
-use super::wallpaper::{Palettes, Rgb};
+use super::{
+    folder_icons,
+    wallpaper::{Palettes, Rgb},
+};
 
 /// What marks a `gtk.css` as ours to replace.
 const MARKER: &str = "/* Written by Aether";
+/// The same for files with `#` comments.
+const HASH_MARKER: &str = "# Written by Aether";
 
 const HEADER: &str =
     "/* Written by Aether from the wallpaper's colors. Changes here get replaced. */\n";
 
 /// How see-through terminals are when what's behind them is blurred.
 const TERMINAL_ALPHA: f64 = 0.82;
+
+/// Yazi's own colors for what's not a folder, which has to be repeated to change those.
+const YAZI_FILE_RULES: &str = r#"    { mime = "**/image/*", fg = "yellow" },
+    { mime = "**/{audio,video}/*", fg = "magenta" },
+    { mime = "**/application/{zip,rar,7z*,tar,gzip,xz,zstd,bzip*,lzma,compress,archive,cpio,arj,xar,ms-cab*}", fg = "red" },
+    { mime = "**/application/{pdf,doc,rtf}", fg = "cyan" },
+    { mime = "vfs/{absent,stale}", fg = "darkgray" },
+    { url = "*", is = "orphan", bg = "red" },
+    { url = "*", is = "exec", fg = "green" },
+    { url = "*", is = "dummy", bg = "red" },
+    { url = "*/", is = "dummy", bg = "red" },
+"#;
+
+/// The Aether logo in characters, like the logos fastfetch has for distributions.
+const LOGO: &str = include_str!("../../assets/aether-logo.txt");
+
+/// What fastfetch shows without a config, which a config has to list to keep.
+const FASTFETCH_MODULES: &str = r#"["title", "separator", "os", "host", "kernel", "uptime", "packages", "shell", "display", "de", "wm", "wmtheme", "theme", "icons", "font", "cursor", "terminal", "terminalfont", "cpu", "gpu", "memory", "swap", "disk", "localip", "battery", "poweradapter", "locale", "break", "colors"]"#;
+
+/// What marks a fastfetch config as ours.
+const SLASH_MARKER: &str = "// Written by Aether";
 
 /// The hues of the terminal colors, from red to cyan in the order of the ANSI ones.
 const ANSI_HUES: [f64; 6] = [25.0, 145.0, 90.0, 265.0, 320.0, 200.0];
@@ -353,6 +379,185 @@ fn qt_scheme(roles: &Roles) -> String {
     )
 }
 
+/// The colors of folders and the selection for yazi, which picks all the other colors from
+/// the terminal's.
+fn yazi_theme(accent: Rgb, roles: &Roles) -> String {
+    let fg = hex(accent);
+    let text = hex(role(roles, "on_surface"));
+    let surface = hex(role(roles, "surface"));
+    let shade = hex(role(roles, "surface_container_highest"));
+    let selected = format!("{{ fg = \"{surface}\", bg = \"{text}\" }}");
+    // The bottom bar: the mode, then what's next to it, in the colors of each mode.
+    let mode = |name: &str, color: &str| {
+        format!(
+            "{name}_main = {{ fg = \"{surface}\", bg = \"{color}\", bold = true }}\n\
+             {name}_alt = {{ fg = \"{color}\", bg = \"{shade}\" }}\n"
+        )
+    };
+    let modes =
+        mode("normal", &text) + &mode("select", &fg) + &mode("unset", &hex(role(roles, "error")));
+    let dirs = folder_icons::YAZI_DIRS
+        .iter()
+        .map(|(name, icon)| {
+            format!("    {{ name = \"{name}\", text = \"{icon}\", fg = \"{fg}\" }},\n")
+        })
+        .collect::<String>();
+    let (open, closed) = (folder_icons::YAZI_OPEN_DIR, folder_icons::YAZI_DIR);
+
+    format!(
+        "{HASH_MARKER} from the wallpaper's colors. Changes here get replaced.\n\
+         # Only folders and the selection are set, so yazi picks everything else from the\n\
+         # terminal's colors.\n\
+         [indicator]\n\
+         parent = {selected}\n\
+         current = {selected}\n\
+         preview = {selected}\n\n\
+         [mode]\n\
+         {modes}\n\
+         [filetype]\n\
+         rules = [\n{YAZI_FILE_RULES}    {{ url = \"*/\", fg = \"{text}\" }},\n]\n\n\
+         [icon]\n\
+         prepend_dirs = [\n{dirs}]\n\
+         prepend_conds = [\n    \
+         {{ if = \"dir & hovered\", text = \"{open}\", fg = \"{fg}\" }},\n    \
+         {{ if = \"dir\", text = \"{closed}\", fg = \"{fg}\" }},\n\
+         ]\n"
+    )
+}
+
+/// fastfetch's config, with the logo, the title and the keys in the wallpaper's color.
+fn fastfetch_config(accent: Rgb, logo: &Path) -> String {
+    let color = hex(accent);
+    let logo = serde_json::to_string(&logo.to_string_lossy()).unwrap_or_default();
+    format!(
+        "{SLASH_MARKER} from the wallpaper's colors. Changes here get replaced.\n\
+         {{\n  \
+         \"$schema\": \"https://github.com/fastfetch-cli/fastfetch/raw/dev/doc/json_schema.json\",\n  \
+         \"logo\": {{\n    \
+         \"type\": \"file\",\n    \
+         \"source\": {logo},\n    \
+         \"color\": {{ \"1\": \"{color}\" }},\n    \
+         \"padding\": {{ \"top\": 1, \"right\": 4 }}\n  \
+         }},\n  \
+         \"display\": {{\n    \
+         \"color\": {{ \"keys\": \"{color}\", \"title\": \"{color}\" }}\n  \
+         }},\n  \
+         \"modules\": {FASTFETCH_MODULES}\n\
+         }}\n"
+    )
+}
+
+/// The description of the icon theme.
+fn icon_index(dark: bool) -> String {
+    let inherits = if dark {
+        "Papirus-Dark,Papirus,hicolor"
+    } else {
+        "Papirus,Papirus-Dark,hicolor"
+    };
+    format!(
+        "[Icon Theme]\n\
+         Name=Aether\n\
+         Comment=Folders in the wallpaper's colors, on top of Papirus\n\
+         Inherits={inherits}\n\
+         Directories=scalable/places\n\n\
+         [scalable/places]\n\
+         Size=64\n\
+         MinSize=8\n\
+         MaxSize=512\n\
+         Context=Places\n\
+         Type=Scalable\n"
+    )
+}
+
+/// Writes the icon theme into `dir`.
+fn write_icon_theme(dir: &Path, source: Argb, dark: bool) -> std::io::Result<()> {
+    write(&dir.join("index.theme"), &icon_index(dark))?;
+    for (name, symbol) in folder_icons::ICONS {
+        write(
+            &dir.join("scalable/places").join(format!("{name}.svg")),
+            &folder_icons::folder_svg(source, symbol),
+        )?;
+    }
+    // This is how apps notice that a theme has changed.
+    fs::File::open(dir)?.set_modified(std::time::SystemTime::now())
+}
+
+/// What tells a terminal to use these colors, for terminals that are already open.
+fn terminal_sequences(source: Argb, dark: bool, roles: &Roles) -> String {
+    let color = |[red, green, blue]: Rgb| format!("rgb:{red:02x}/{green:02x}/{blue:02x}");
+    let osc = |code: &str, value: String| format!("\x1b]{code};{value}\x1b\\");
+
+    let mut sequences = ansi(source, dark, roles)
+        .into_iter()
+        .enumerate()
+        .map(|(index, value)| osc(&format!("4;{index}"), color(value)))
+        .collect::<String>();
+    for (code, name) in [
+        ("10", "on_surface"),
+        ("11", "surface"),
+        ("12", "primary"),
+        ("17", "primary"),
+        ("19", "on_primary"),
+    ] {
+        sequences += &osc(code, color(role(roles, name)));
+    }
+    sequences
+}
+
+/// The terminals of the open foot windows.
+fn foot_terminals() -> Vec<PathBuf> {
+    let Ok(processes) = fs::read_dir("/proc") else {
+        return Vec::new();
+    };
+    // A process's name and its parent, from its stat line.
+    let stat = |pid: &str| -> Option<(String, String)> {
+        let stat = fs::read_to_string(format!("/proc/{pid}/stat")).ok()?;
+        let (name, rest) = stat.split_once(" (")?.1.rsplit_once(") ")?;
+        Some((name.to_owned(), rest.split(' ').nth(1)?.to_owned()))
+    };
+
+    let pids = processes
+        .flatten()
+        .filter_map(|entry| entry.file_name().into_string().ok())
+        .filter(|name| name.bytes().all(|byte| byte.is_ascii_digit()))
+        .filter_map(|pid| Some((stat(&pid)?, pid)))
+        .collect::<Vec<_>>();
+    let feet = pids
+        .iter()
+        .filter(|((name, _), _)| name == "foot")
+        .map(|(_, pid)| pid.as_str())
+        .collect::<Vec<_>>();
+
+    let mut terminals = pids
+        .iter()
+        .filter(|((_, parent), _)| feet.contains(&parent.as_str()))
+        .filter_map(|(_, pid)| fs::read_link(format!("/proc/{pid}/fd/0")).ok())
+        .filter(|path| path.starts_with("/dev/pts"))
+        .collect::<Vec<_>>();
+    terminals.sort();
+    terminals.dedup();
+    terminals
+}
+
+/// Gives the open foot windows the new colors. Foot only reads its config when a window
+/// opens, but it takes colors from what's written to it.
+fn recolor_terminals(source: Argb, dark: bool, roles: &Roles) {
+    use std::{io::Write, os::unix::fs::OpenOptionsExt};
+
+    let sequences = terminal_sequences(source, dark, roles);
+    for terminal in foot_terminals() {
+        // Not blocking, as a terminal that's stuck mustn't hold this up.
+        let written = fs::OpenOptions::new()
+            .write(true)
+            .custom_flags(libc::O_NONBLOCK | libc::O_NOCTTY)
+            .open(&terminal)
+            .and_then(|mut file| file.write_all(sequences.as_bytes()));
+        if let Err(err) = written {
+            tracing::debug!("Failed to recolor {}: {err}", terminal.display());
+        }
+    }
+}
+
 /// `contents` of a GTK settings file with the dark theme set to `dark`.
 fn with_gtk_dark(contents: &str, dark: bool) -> String {
     const KEY: &str = "gtk-application-prefer-dark-theme";
@@ -381,12 +586,15 @@ fn write(path: &Path, contents: &str) -> std::io::Result<()> {
     fs::write(path, contents)
 }
 
-/// Writes a `gtk.css`. One that's not ours gets kept next to it, once.
-fn write_gtk_css(path: &Path, contents: &str) -> std::io::Result<()> {
+/// Writes a file that starts with `marker` when it's ours. One that's not ours gets kept
+/// next to it, once.
+fn write_owned(path: &Path, marker: &str, contents: &str) -> std::io::Result<()> {
     if let Ok(current) = fs::read_to_string(path)
-        && !current.starts_with(MARKER)
+        && !current.starts_with(marker)
     {
-        let backup = path.with_extension("css.before-aether");
+        let mut backup = path.as_os_str().to_owned();
+        backup.push(".before-aether");
+        let backup = PathBuf::from(backup);
         if !backup.exists() {
             fs::write(backup, current)?;
         }
@@ -394,7 +602,13 @@ fn write_gtk_css(path: &Path, contents: &str) -> std::io::Result<()> {
     write(path, contents)
 }
 
-fn export_to(config: &Path, palettes: &Palettes, dark: bool, blur: bool) -> std::io::Result<()> {
+fn export_to(
+    config: &Path,
+    data: &Path,
+    palettes: &Palettes,
+    dark: bool,
+    blur: bool,
+) -> std::io::Result<()> {
     let source = palettes.source;
     let roles = roles(source, dark);
 
@@ -404,8 +618,8 @@ fn export_to(config: &Path, palettes: &Palettes, dark: bool, blur: bool) -> std:
     )?;
     write(&config.join("aether/colors.css"), &colors_css(&roles))?;
 
-    write_gtk_css(&config.join("gtk-4.0/gtk.css"), &gtk4_css(&roles))?;
-    write_gtk_css(&config.join("gtk-3.0/gtk.css"), &gtk3_css(&roles))?;
+    write_owned(&config.join("gtk-4.0/gtk.css"), MARKER, &gtk4_css(&roles))?;
+    write_owned(&config.join("gtk-3.0/gtk.css"), MARKER, &gtk3_css(&roles))?;
     for dir in ["gtk-3.0", "gtk-4.0"] {
         let path = config.join(dir).join("settings.ini");
         let contents = fs::read_to_string(&path).unwrap_or_default();
@@ -419,6 +633,19 @@ fn export_to(config: &Path, palettes: &Palettes, dark: bool, blur: bool) -> std:
     write(
         &config.join("kitty/aether-colors.conf"),
         &kitty_conf(source, dark, &roles, blur),
+    )?;
+    write_owned(
+        &config.join("yazi/theme.toml"),
+        HASH_MARKER,
+        &yazi_theme(palettes.get(dark).accent, &roles),
+    )?;
+    write_icon_theme(&data.join("icons/Aether"), source, dark)?;
+    let logo = config.join("fastfetch/aether-logo.txt");
+    write(&logo, &format!("$1{LOGO}"))?;
+    write_owned(
+        &config.join("fastfetch/config.jsonc"),
+        SLASH_MARKER,
+        &fastfetch_config(palettes.get(dark).accent, &logo),
     )?;
     for dir in ["qt5ct", "qt6ct"] {
         write(
@@ -436,14 +663,21 @@ fn config_home() -> Option<PathBuf> {
         .or_else(|| Some(PathBuf::from(env::var_os("HOME")?).join(".config")))
 }
 
+fn data_home() -> Option<PathBuf> {
+    env::var_os("XDG_DATA_HOME")
+        .map(PathBuf::from)
+        .or_else(|| Some(PathBuf::from(env::var_os("HOME")?).join(".local/share")))
+}
+
 /// Shares the theme. This touches a lot of files, so call it on another thread.
 pub fn export(palettes: &Palettes, dark: bool, blur: bool) {
-    let Some(config) = config_home() else {
+    let (Some(config), Some(data)) = (config_home(), data_home()) else {
         return;
     };
-    if let Err(err) = export_to(&config, palettes, dark, blur) {
+    if let Err(err) = export_to(&config, &data, palettes, dark, blur) {
         tracing::warn!("Failed to share the theme: {err}");
     }
+    recolor_terminals(palettes.source, dark, &roles(palettes.source, dark));
 }
 
 #[cfg(test)]
@@ -460,7 +694,35 @@ mod tests {
     #[test]
     fn it_all_gets_written() {
         let dir = temp_dir("all");
-        export_to(&dir, &Palettes::fallback(), true, true).unwrap();
+        export_to(&dir, &dir, &Palettes::fallback(), true, true).unwrap();
+
+        let yazi = fs::read_to_string(dir.join("yazi/theme.toml")).unwrap();
+        let yazi: toml::Value = toml::from_str(&yazi).unwrap();
+        assert_eq!(yazi["icon"]["prepend_conds"][1]["if"].as_str(), Some("dir"));
+        let rules = yazi["filetype"]["rules"].as_array().unwrap();
+        assert_eq!(rules.last().unwrap()["url"].as_str(), Some("*/"));
+        assert!(yazi["indicator"]["current"]["bg"].is_str());
+        assert_eq!(yazi["mode"]["normal_main"]["bold"].as_bool(), Some(true));
+
+        let index = fs::read_to_string(dir.join("icons/Aether/index.theme")).unwrap();
+        assert!(index.contains("Inherits=Papirus-Dark"));
+        assert!(
+            dir.join("icons/Aether/scalable/places/folder-download.svg")
+                .exists()
+        );
+
+        let fastfetch = fs::read_to_string(dir.join("fastfetch/config.jsonc")).unwrap();
+        let json = fastfetch.split_once('\n').unwrap().1;
+        let json: Value = serde_json::from_str(json).unwrap();
+        assert!(
+            json["logo"]["color"]["1"]
+                .as_str()
+                .unwrap()
+                .starts_with('#')
+        );
+        assert_eq!(json["modules"][2].as_str(), Some("os"));
+        let logo = fs::read_to_string(dir.join("fastfetch/aether-logo.txt")).unwrap();
+        assert!(logo.starts_with("$1ooo"));
 
         let json: Value =
             serde_json::from_str(&fs::read_to_string(dir.join("aether/colors.json")).unwrap())
@@ -490,7 +752,7 @@ mod tests {
     #[test]
     fn terminals_are_solid_without_blur() {
         let dir = temp_dir("solid");
-        export_to(&dir, &Palettes::fallback(), false, false).unwrap();
+        export_to(&dir, &dir, &Palettes::fallback(), false, false).unwrap();
         let foot = fs::read_to_string(dir.join("foot/aether-colors.ini")).unwrap();
         assert!(foot.contains("alpha=1\n"));
         fs::remove_dir_all(dir).unwrap();
@@ -502,14 +764,14 @@ mod tests {
         let css = dir.join("gtk.css");
 
         fs::write(&css, "/* mine */\n").unwrap();
-        write_gtk_css(&css, &format!("{HEADER}a\n")).unwrap();
+        write_owned(&css, MARKER, &format!("{HEADER}a\n")).unwrap();
         assert_eq!(
             fs::read_to_string(dir.join("gtk.css.before-aether")).unwrap(),
             "/* mine */\n"
         );
 
         // Our own doesn't replace the backup.
-        write_gtk_css(&css, &format!("{HEADER}b\n")).unwrap();
+        write_owned(&css, MARKER, &format!("{HEADER}b\n")).unwrap();
         assert_eq!(
             fs::read_to_string(dir.join("gtk.css.before-aether")).unwrap(),
             "/* mine */\n"
@@ -517,6 +779,20 @@ mod tests {
         assert_eq!(fs::read_to_string(&css).unwrap(), format!("{HEADER}b\n"));
 
         fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn open_terminals_get_every_color() {
+        let palettes = Palettes::fallback();
+        let roles = roles(palettes.source, true);
+        let sequences = terminal_sequences(palettes.source, true, &roles);
+
+        assert_eq!(sequences.matches("\x1b]4;").count(), 16);
+        for code in ["10", "11", "12", "17", "19"] {
+            assert!(sequences.contains(&format!("\x1b]{code};rgb:")));
+        }
+        // Each one ends, so none of them swallows the next.
+        assert_eq!(sequences.matches("\x1b\\").count(), 21);
     }
 
     #[test]

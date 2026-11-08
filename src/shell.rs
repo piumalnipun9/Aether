@@ -20,6 +20,7 @@ mod apps;
 mod calendar;
 mod capture;
 mod clock;
+mod folder_icons;
 mod ipc;
 mod launcher;
 mod notifications;

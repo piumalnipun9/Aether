@@ -221,15 +221,58 @@ fn index_icons(dir: &Path, index: &mut HashMap<String, (u32, PathBuf)>) {
     }
 }
 
+/// What a theme's `index.theme` says it inherits from.
+fn inherited_themes(contents: &str) -> Vec<String> {
+    contents
+        .lines()
+        .find_map(|line| line.strip_prefix("Inherits="))
+        .map(|themes| {
+            themes
+                .split(',')
+                .map(|theme| theme.trim().to_owned())
+                .filter(|theme| !theme.is_empty())
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
+/// `theme`, what it inherits from, and the fallbacks, in order of preference.
+fn theme_chain(theme: &str, dirs: &[PathBuf]) -> Vec<String> {
+    let mut chain = Vec::new();
+    // The last one is next.
+    let mut pending = FALLBACK_THEMES
+        .iter()
+        .rev()
+        .map(|&name| name.to_owned())
+        .collect::<Vec<_>>();
+    pending.push(theme.to_owned());
+
+    while let Some(name) = pending.pop() {
+        if chain.contains(&name) {
+            continue;
+        }
+        let inherited = dirs
+            .iter()
+            .find_map(|dir| {
+                fs::read_to_string(dir.join("icons").join(&name).join("index.theme")).ok()
+            })
+            .map_or_else(Vec::new, |contents| inherited_themes(&contents));
+        pending.extend(inherited.into_iter().rev());
+        chain.push(name);
+    }
+
+    chain
+}
+
 /// Icons by name, from the themes in order of preference.
 fn index_all_icons(theme: &str) -> HashMap<String, PathBuf> {
     let mut index = HashMap::new();
     let dirs = data_dirs();
 
-    for name in [theme].into_iter().chain(FALLBACK_THEMES) {
+    for name in theme_chain(theme, &dirs) {
         let mut this_theme = HashMap::new();
         for dir in &dirs {
-            index_icons(&dir.join("icons").join(name), &mut this_theme);
+            index_icons(&dir.join("icons").join(&name), &mut this_theme);
         }
         for (name, (_, path)) in this_theme {
             index.entry(name).or_insert(path);
@@ -356,6 +399,33 @@ mod tests {
         assert!(parse(&entry("OnlyShowIn=Pinnacle;")).is_some());
         assert!(parse(&entry("NotShowIn=Pinnacle;")).is_none());
         assert!(parse("[Desktop Entry]\nType=Link\nName=A\nExec=a").is_none());
+    }
+
+    #[test]
+    fn themes_list_what_they_inherit() {
+        assert_eq!(
+            inherited_themes("[Icon Theme]\nName=A\nInherits=B, C,\n"),
+            ["B", "C"]
+        );
+        assert!(inherited_themes("[Icon Theme]\nName=A\n").is_empty());
+    }
+
+    #[test]
+    fn inherited_themes_come_before_the_fallbacks() {
+        let dir = std::env::temp_dir().join(format!("aether-themes-{}", std::process::id()));
+        let theme = dir.join("icons/Child");
+        fs::create_dir_all(&theme).unwrap();
+        fs::write(
+            theme.join("index.theme"),
+            "[Icon Theme]\nInherits=Parent,hicolor\n",
+        )
+        .unwrap();
+
+        assert_eq!(
+            theme_chain("Child", std::slice::from_ref(&dir)),
+            ["Child", "Parent", "hicolor", "Adwaita"]
+        );
+        fs::remove_dir_all(dir).unwrap();
     }
 
     #[test]
